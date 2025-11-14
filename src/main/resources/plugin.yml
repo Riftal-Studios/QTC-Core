@@ -1,0 +1,17 @@
+name: QTCCore
+version: 1.0
+main: com.riftalstudios.qtccore.QTCCore
+api-version: '1.21'
+author: Riftal Studios
+description: Custom RPG mechanics plugin for PaperMC servers
+
+commands:
+  qtc:
+    description: Main QTC Core command
+    usage: /qtc
+    permission: qtccore.admin
+
+permissions:
+  qtccore.admin:
+    description: Full administrative access to QTC Core
+    default: op

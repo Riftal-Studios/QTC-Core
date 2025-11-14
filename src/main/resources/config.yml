@@ -1,0 +1,27 @@
+plugin:
+  debug: false
+  language: en_US
+
+storage:
+  type: SQLITE
+  mysql:
+    host: localhost
+    port: 3306
+    database: qtccore
+    username: root
+    password: password
+
+features:
+  resource-nodes: true
+  weapon-fusion: true
+  armor-fusion: true
+  magic-elements: true
+  herbalism: true
+  fishing-zones: true
+  hunting: true
+
+global:
+  mmocore-integration: true
+  mythiclib-integration: true
+  placeholderapi-integration: true
+  pyrofishing-integration: true

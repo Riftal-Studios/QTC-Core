@@ -1,0 +1,13 @@
+plugin:
+  enabled: "&a&lQTC Core &7has been &aenabled&7!"
+  disabled: "&c&lQTC Core &7has been &cdisabled&7!"
+  reload: "&aConfiguration reloaded successfully!"
+
+errors:
+  no-permission: "&cYou don't have permission to do that!"
+  invalid-command: "&cInvalid command! Use &7/qtc help&c for help."
+  player-only: "&cThis command can only be run by players!"
+
+test:
+  colors: "&cThis is red text"
+  placeholder: "Hello, {player}!"
