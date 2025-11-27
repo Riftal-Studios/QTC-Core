@@ -6,10 +6,8 @@ import com.riftalstudios.qtccore.storage.DatabaseManager;
 import com.riftalstudios.qtccore.storage.ResourceNodeStorage;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 
@@ -56,11 +54,11 @@ public class ResourceNodeManager implements Manager, Listener {
 
     @Override
     public void disable() {
-        if (breakHandler != null) {
-            breakHandler.unregister();
-        }
         if (regenerator != null) {
             regenerator.cancelAll();
+        }
+        if (displayManager != null) {
+            displayManager.removeAllDisplays();
         }
         saveAllNodes();
         nodes.clear();
@@ -78,7 +76,7 @@ public class ResourceNodeManager implements Manager, Listener {
         addToChunkMap(node);
         storage.saveNode(node);
         if (displayManager != null) {
-            displayManager.showNodeToAllPlayers(node);
+            displayManager.showNode(node);
         }
         plugin.getLogger().info("Created node: " + node.getId() + " at " + formatLocation(node.getLocation()));
     }
@@ -89,7 +87,7 @@ public class ResourceNodeManager implements Manager, Listener {
             removeFromChunkMap(node);
             storage.deleteNode(nodeId);
             if (displayManager != null) {
-                displayManager.hideNodeFromAllPlayers(node);
+                displayManager.hideNode(node);
             }
             if (regenerator != null) {
                 regenerator.cancelRegeneration(nodeId);
@@ -146,28 +144,13 @@ public class ResourceNodeManager implements Manager, Listener {
 
         if (wasDepleted) {
             if (displayManager != null) {
-                displayManager.hideNodeFromAllPlayers(node);
+                displayManager.hideNode(node);
             }
             if (regenerator != null) {
                 regenerator.scheduleRegeneration(node);
             }
             plugin.getLogger().info("Node " + node.getId().toString().substring(0, 8) + " depleted");
         }
-    }
-
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        if (displayManager == null) return;
-
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            for (ResourceNode node : nodes.values()) {
-                if (node.getState() == NodeState.ACTIVE &&
-                        node.getWorldName().equals(player.getWorld().getName())) {
-                    displayManager.showNodeToPlayer(player, node);
-                }
-            }
-        }, 20L);
     }
 
     @EventHandler
@@ -183,10 +166,10 @@ public class ResourceNodeManager implements Manager, Listener {
                     if (!nodes.containsKey(node.getId())) {
                         nodes.put(node.getId(), node);
                         addToChunkMap(node);
+                        if (displayManager != null && node.getState() == NodeState.ACTIVE) {
+                            displayManager.showNode(node);
+                        }
                     }
-                }
-                if (displayManager != null && !loadedNodes.isEmpty()) {
-                    displayManager.showNodesInChunk(chunk, loadedNodes);
                 }
             });
         });
@@ -203,6 +186,9 @@ public class ResourceNodeManager implements Manager, Listener {
                 ResourceNode node = nodes.remove(id);
                 if (node != null) {
                     storage.saveNode(node);
+                    if (displayManager != null) {
+                        displayManager.hideNode(node);
+                    }
                 }
             }
         }

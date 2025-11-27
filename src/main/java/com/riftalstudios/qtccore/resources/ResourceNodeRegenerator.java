@@ -46,7 +46,7 @@ public class ResourceNodeRegenerator {
         }
 
         currentNode.regenerate();
-        displayManager.showNodeToAllPlayers(currentNode);
+        displayManager.showNode(currentNode);
 
         plugin.getLogger().info("Node " + currentNode.getId().toString().substring(0, 8) + " regenerated");
     }

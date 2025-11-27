@@ -1,145 +1,134 @@
 package com.riftalstudios.qtccore.resources;
 
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import com.github.retrooper.packetevents.util.Vector3i;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
 import com.riftalstudios.qtccore.QTCCore;
-import org.bukkit.Chunk;
 import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.entity.Player;
+import org.bukkit.NamespacedKey;
+import org.bukkit.World;
+import org.bukkit.entity.BlockDisplay;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Interaction;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.util.Transformation;
+import org.joml.AxisAngle4f;
+import org.joml.Vector3f;
 
-import java.util.Collection;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class NodeDisplayManager {
 
     private final QTCCore plugin;
-    private final Map<Material, StateType> materialToStateType = new ConcurrentHashMap<>();
+    private final NamespacedKey nodeIdKey;
+    private final Map<UUID, UUID> nodeToDisplay = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> nodeToInteraction = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> interactionToNode = new ConcurrentHashMap<>();
 
     public NodeDisplayManager(QTCCore plugin) {
         this.plugin = plugin;
-        initializeMaterialMapping();
+        this.nodeIdKey = new NamespacedKey(plugin, "resource_node_id");
     }
 
-    private void initializeMaterialMapping() {
-        materialToStateType.put(Material.OAK_LOG, StateTypes.OAK_LOG);
-        materialToStateType.put(Material.BIRCH_LOG, StateTypes.BIRCH_LOG);
-        materialToStateType.put(Material.SPRUCE_LOG, StateTypes.SPRUCE_LOG);
-        materialToStateType.put(Material.DARK_OAK_LOG, StateTypes.DARK_OAK_LOG);
-        materialToStateType.put(Material.IRON_ORE, StateTypes.IRON_ORE);
-        materialToStateType.put(Material.GOLD_ORE, StateTypes.GOLD_ORE);
-        materialToStateType.put(Material.DIAMOND_ORE, StateTypes.DIAMOND_ORE);
-        materialToStateType.put(Material.COAL_ORE, StateTypes.COAL_ORE);
-    }
-
-    public void showNodeToPlayer(Player player, ResourceNode node) {
+    public void showNode(ResourceNode node) {
         if (node.getState() != NodeState.ACTIVE) return;
+        if (nodeToDisplay.containsKey(node.getId())) return;
 
         Location loc = node.getLocation();
-        StateType stateType = materialToStateType.get(node.getType().getDisplayBlock());
-        if (stateType == null) {
-            plugin.getLogger().warning("No StateType mapping for: " + node.getType().getDisplayBlock());
-            return;
+        World world = loc.getWorld();
+        if (world == null) return;
+
+        Location displayLoc = loc.clone().add(0.5, 0.5, 0.5);
+
+        BlockDisplay display = world.spawn(displayLoc, BlockDisplay.class, entity -> {
+            entity.setBlock(node.getType().getDisplayBlock().createBlockData());
+            entity.setPersistent(true);
+            entity.setInvulnerable(true);
+
+            Transformation transform = new Transformation(
+                    new Vector3f(-0.5f, -0.5f, -0.5f),
+                    new AxisAngle4f(0, 0, 0, 1),
+                    new Vector3f(1, 1, 1),
+                    new AxisAngle4f(0, 0, 0, 1)
+            );
+            entity.setTransformation(transform);
+
+            entity.getPersistentDataContainer().set(nodeIdKey, PersistentDataType.STRING, node.getId().toString());
+        });
+
+        Interaction interaction = world.spawn(displayLoc, Interaction.class, entity -> {
+            entity.setInteractionWidth(1.0f);
+            entity.setInteractionHeight(1.0f);
+            entity.setResponsive(true);
+            entity.setPersistent(true);
+
+            entity.getPersistentDataContainer().set(nodeIdKey, PersistentDataType.STRING, node.getId().toString());
+        });
+
+        nodeToDisplay.put(node.getId(), display.getUniqueId());
+        nodeToInteraction.put(node.getId(), interaction.getUniqueId());
+        interactionToNode.put(interaction.getUniqueId(), node.getId());
+
+        plugin.getLogger().info("Spawned display entities for node " + node.getId().toString().substring(0, 8));
+    }
+
+    public void hideNode(ResourceNode node) {
+        UUID displayId = nodeToDisplay.remove(node.getId());
+        UUID interactionId = nodeToInteraction.remove(node.getId());
+
+        if (displayId != null) {
+            Entity display = plugin.getServer().getEntity(displayId);
+            if (display != null) display.remove();
         }
 
-        sendBlockChange(player, loc, stateType);
-    }
-
-    public void hideNodeFromPlayer(Player player, ResourceNode node) {
-        Location loc = node.getLocation();
-        Material originalMaterial = loc.getBlock().getType();
-        StateType stateType = getStateTypeForMaterial(originalMaterial);
-
-        sendBlockChange(player, loc, stateType);
-    }
-
-    public void showNodeToAllPlayers(ResourceNode node) {
-        if (node.getState() != NodeState.ACTIVE) return;
-
-        Collection<? extends Player> nearbyPlayers = getPlayersInRange(node);
-        for (Player player : nearbyPlayers) {
-            showNodeToPlayer(player, node);
+        if (interactionId != null) {
+            interactionToNode.remove(interactionId);
+            Entity interaction = plugin.getServer().getEntity(interactionId);
+            if (interaction != null) interaction.remove();
         }
+
+        plugin.getLogger().info("Removed display entities for node " + node.getId().toString().substring(0, 8));
     }
 
-    public void hideNodeFromAllPlayers(ResourceNode node) {
-        Collection<? extends Player> nearbyPlayers = getPlayersInRange(node);
-        for (Player player : nearbyPlayers) {
-            hideNodeFromPlayer(player, node);
-        }
+    public UUID getNodeIdFromInteraction(UUID interactionEntityId) {
+        return interactionToNode.get(interactionEntityId);
     }
 
-    public void showAllNodesToPlayer(Player player, Collection<ResourceNode> nodes) {
-        for (ResourceNode node : nodes) {
-            showNodeToPlayer(player, node);
-        }
-    }
-
-    public void refreshNodeDisplay(ResourceNode node) {
-        if (node.getState() == NodeState.ACTIVE) {
-            showNodeToAllPlayers(node);
-        } else {
-            hideNodeFromAllPlayers(node);
-        }
-    }
-
-    public void showNodesInChunk(Chunk chunk, Collection<ResourceNode> nodes) {
-        Collection<? extends Player> playersInChunk = chunk.getWorld().getPlayers().stream()
-                .filter(p -> isPlayerNearChunk(p, chunk))
-                .toList();
-
-        for (Player player : playersInChunk) {
-            for (ResourceNode node : nodes) {
-                if (node.getState() == NodeState.ACTIVE) {
-                    showNodeToPlayer(player, node);
-                }
-            }
-        }
-    }
-
-    private void sendBlockChange(Player player, Location loc, StateType stateType) {
-        Vector3i position = new Vector3i(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
-        WrappedBlockState blockState = stateType.createBlockState();
-
-        WrapperPlayServerBlockChange packet = new WrapperPlayServerBlockChange(position, blockState.getGlobalId());
-
-        PacketEvents.getAPI().getPlayerManager().sendPacket(player, packet);
-    }
-
-    private StateType getStateTypeForMaterial(Material material) {
-        StateType cached = materialToStateType.get(material);
+    public UUID getNodeIdFromInteraction(Interaction interaction) {
+        UUID cached = interactionToNode.get(interaction.getUniqueId());
         if (cached != null) return cached;
 
-        return switch (material) {
-            case AIR -> StateTypes.AIR;
-            case STONE -> StateTypes.STONE;
-            case DIRT -> StateTypes.DIRT;
-            case GRASS_BLOCK -> StateTypes.GRASS_BLOCK;
-            default -> StateTypes.AIR;
-        };
+        String nodeIdStr = interaction.getPersistentDataContainer().get(nodeIdKey, PersistentDataType.STRING);
+        if (nodeIdStr != null) {
+            UUID nodeId = UUID.fromString(nodeIdStr);
+            interactionToNode.put(interaction.getUniqueId(), nodeId);
+            nodeToInteraction.put(nodeId, interaction.getUniqueId());
+            return nodeId;
+        }
+        return null;
     }
 
-    private Collection<? extends Player> getPlayersInRange(ResourceNode node) {
-        Location loc = node.getLocation();
-        if (loc.getWorld() == null) return java.util.Collections.emptyList();
-
-        int viewDistance = plugin.getServer().getViewDistance() * 16;
-        return loc.getWorld().getPlayers().stream()
-                .filter(p -> p.getLocation().distance(loc) <= viewDistance)
-                .toList();
+    public void refreshNode(ResourceNode node) {
+        hideNode(node);
+        if (node.getState() == NodeState.ACTIVE) {
+            showNode(node);
+        }
     }
 
-    private boolean isPlayerNearChunk(Player player, Chunk chunk) {
-        int playerChunkX = player.getLocation().getBlockX() >> 4;
-        int playerChunkZ = player.getLocation().getBlockZ() >> 4;
-        int viewDistance = plugin.getServer().getViewDistance();
+    public void removeAllDisplays() {
+        for (UUID displayId : nodeToDisplay.values()) {
+            Entity entity = plugin.getServer().getEntity(displayId);
+            if (entity != null) entity.remove();
+        }
+        for (UUID interactionId : nodeToInteraction.values()) {
+            Entity entity = plugin.getServer().getEntity(interactionId);
+            if (entity != null) entity.remove();
+        }
+        nodeToDisplay.clear();
+        nodeToInteraction.clear();
+        interactionToNode.clear();
+    }
 
-        return Math.abs(playerChunkX - chunk.getX()) <= viewDistance
-                && Math.abs(playerChunkZ - chunk.getZ()) <= viewDistance;
+    public boolean isResourceNodeInteraction(Interaction interaction) {
+        return interaction.getPersistentDataContainer().has(nodeIdKey, PersistentDataType.STRING);
     }
 }
