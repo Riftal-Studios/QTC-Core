@@ -61,12 +61,18 @@ public class ResourceNodeBreakHandler implements Listener {
         int damage = calculateDamage(player, node);
         nodeManager.damageNode(node, damage);
 
-        player.sendActionBar(net.kyori.adventure.text.Component.text(
-                "§7" + node.getType().name() + " §8| §c" + node.getCurrentHp() + "§7/§c" + node.getMaxHp() + " HP"
-        ));
+        player.sendActionBar(net.kyori.adventure.text.Component.text()
+                .append(net.kyori.adventure.text.Component.text(node.getType().name(), net.kyori.adventure.text.format.NamedTextColor.GRAY))
+                .append(net.kyori.adventure.text.Component.text(" | ", net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY))
+                .append(net.kyori.adventure.text.Component.text(node.getCurrentHp(), net.kyori.adventure.text.format.NamedTextColor.RED))
+                .append(net.kyori.adventure.text.Component.text("/", net.kyori.adventure.text.format.NamedTextColor.GRAY))
+                .append(net.kyori.adventure.text.Component.text(node.getMaxHp() + " HP", net.kyori.adventure.text.format.NamedTextColor.RED))
+                .build());
 
         if (node.getState() == NodeState.DEPLETED) {
-            player.sendMessage("§aYou gathered resources from the " + node.getType().name().toLowerCase().replace("_", " ") + "!");
+            player.sendMessage(net.kyori.adventure.text.Component.text(
+                    "You gathered resources from the " + node.getType().name().toLowerCase().replace("_", " ") + "!",
+                    net.kyori.adventure.text.format.NamedTextColor.GREEN));
         }
     }
 
