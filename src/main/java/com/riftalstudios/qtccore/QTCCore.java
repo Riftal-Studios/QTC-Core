@@ -40,6 +40,9 @@ public class QTCCore extends JavaPlugin {
 
         enableManagers();
 
+        resourceNodeManager.initializeDisplay();
+        getLogger().info("Node display manager initialized");
+
         getLogger().info("QTC Core has been enabled successfully!");
     }
 

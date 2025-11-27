@@ -12,6 +12,7 @@ repositories {
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://oss.sonatype.org/content/repositories/snapshots/")
+    maven("https://repo.codemc.io/repository/maven-releases/")
 }
 
 dependencies {
@@ -21,6 +22,9 @@ dependencies {
     // Database
     implementation("com.zaxxer:HikariCP:5.1.0")
     implementation("org.xerial:sqlite-jdbc:3.45.0.0")
+
+    // PacketEvents for client-side block display
+    compileOnly("com.github.retrooper:packetevents-spigot:2.7.0")
 
     // Test dependencies (using Paper 1.21 for MockBukkit compatibility)
     testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
@@ -56,7 +60,7 @@ tasks {
         minecraftVersion("1.21.3")
 
         downloadPlugins {
-            // Add any plugin dependencies here for testing
+            modrinth("packetevents", "2.7.0")
         }
     }
 

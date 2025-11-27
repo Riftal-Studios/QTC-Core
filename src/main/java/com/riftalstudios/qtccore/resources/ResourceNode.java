@@ -66,9 +66,11 @@ public class ResourceNode {
         return depletedAt;
     }
 
-    public void damage(int amount) {
-        if (state != NodeState.ACTIVE) return;
+    public boolean damage(int amount) {
+        if (state != NodeState.ACTIVE) return false;
+        int previousHp = currentHp;
         setCurrentHp(currentHp - amount);
+        return previousHp > 0 && currentHp == 0;
     }
 
     public void deplete() {

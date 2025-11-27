@@ -6,8 +6,10 @@ import com.riftalstudios.qtccore.storage.DatabaseManager;
 import com.riftalstudios.qtccore.storage.ResourceNodeStorage;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 
@@ -21,11 +23,29 @@ public class ResourceNodeManager implements Manager, Listener {
     private final ResourceNodeStorage storage;
     private final Map<UUID, ResourceNode> nodes = new ConcurrentHashMap<>();
     private final Map<String, Set<UUID>> chunkNodeMap = new ConcurrentHashMap<>();
+    private NodeDisplayManager displayManager;
+    private ResourceNodeRegenerator regenerator;
+    private ResourceNodeBreakHandler breakHandler;
 
     public ResourceNodeManager(QTCCore plugin, DatabaseManager database) {
         this.plugin = plugin;
         this.database = database;
         this.storage = new ResourceNodeStorage(plugin, database);
+    }
+
+    public void initializeDisplay() {
+        this.displayManager = new NodeDisplayManager(plugin);
+        this.regenerator = new ResourceNodeRegenerator(plugin, this, displayManager);
+        this.breakHandler = new ResourceNodeBreakHandler(plugin, this);
+        this.breakHandler.register();
+    }
+
+    public NodeDisplayManager getDisplayManager() {
+        return displayManager;
+    }
+
+    public ResourceNodeRegenerator getRegenerator() {
+        return regenerator;
     }
 
     @Override
@@ -36,6 +56,12 @@ public class ResourceNodeManager implements Manager, Listener {
 
     @Override
     public void disable() {
+        if (breakHandler != null) {
+            breakHandler.unregister();
+        }
+        if (regenerator != null) {
+            regenerator.cancelAll();
+        }
         saveAllNodes();
         nodes.clear();
         chunkNodeMap.clear();
@@ -51,6 +77,9 @@ public class ResourceNodeManager implements Manager, Listener {
         nodes.put(node.getId(), node);
         addToChunkMap(node);
         storage.saveNode(node);
+        if (displayManager != null) {
+            displayManager.showNodeToAllPlayers(node);
+        }
         plugin.getLogger().info("Created node: " + node.getId() + " at " + formatLocation(node.getLocation()));
     }
 
@@ -59,6 +88,12 @@ public class ResourceNodeManager implements Manager, Listener {
         if (node != null) {
             removeFromChunkMap(node);
             storage.deleteNode(nodeId);
+            if (displayManager != null) {
+                displayManager.hideNodeFromAllPlayers(node);
+            }
+            if (regenerator != null) {
+                regenerator.cancelRegeneration(nodeId);
+            }
             plugin.getLogger().info("Removed node: " + nodeId);
         }
     }
@@ -105,6 +140,36 @@ public class ResourceNodeManager implements Manager, Listener {
         return nodes.size();
     }
 
+    public void damageNode(ResourceNode node, int damage) {
+        boolean wasDepleted = node.damage(damage);
+        storage.saveNode(node);
+
+        if (wasDepleted) {
+            if (displayManager != null) {
+                displayManager.hideNodeFromAllPlayers(node);
+            }
+            if (regenerator != null) {
+                regenerator.scheduleRegeneration(node);
+            }
+            plugin.getLogger().info("Node " + node.getId().toString().substring(0, 8) + " depleted");
+        }
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        if (displayManager == null) return;
+
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            for (ResourceNode node : nodes.values()) {
+                if (node.getState() == NodeState.ACTIVE &&
+                        node.getWorldName().equals(player.getWorld().getName())) {
+                    displayManager.showNodeToPlayer(player, node);
+                }
+            }
+        }, 20L);
+    }
+
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
         Chunk chunk = event.getChunk();
@@ -113,12 +178,17 @@ public class ResourceNodeManager implements Manager, Listener {
         int chunkZ = chunk.getZ();
 
         storage.loadNodesInChunk(world, chunkX, chunkZ).thenAccept(loadedNodes -> {
-            for (ResourceNode node : loadedNodes) {
-                if (!nodes.containsKey(node.getId())) {
-                    nodes.put(node.getId(), node);
-                    addToChunkMap(node);
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                for (ResourceNode node : loadedNodes) {
+                    if (!nodes.containsKey(node.getId())) {
+                        nodes.put(node.getId(), node);
+                        addToChunkMap(node);
+                    }
                 }
-            }
+                if (displayManager != null && !loadedNodes.isEmpty()) {
+                    displayManager.showNodesInChunk(chunk, loadedNodes);
+                }
+            });
         });
     }
 

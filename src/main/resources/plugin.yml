@@ -4,6 +4,7 @@ main: com.riftalstudios.qtccore.QTCCore
 api-version: '1.21'
 author: Riftal Studios
 description: Custom RPG mechanics plugin for PaperMC servers
+depend: [packetevents]
 
 commands:
   qtc:
