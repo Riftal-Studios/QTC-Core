@@ -23,10 +23,10 @@ dependencies {
     implementation("org.xerial:sqlite-jdbc:3.45.0.0")
 
     // Test dependencies
-    testImplementation("io.papermc.paper:paper-api:1.21.3-R0.1-SNAPSHOT")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("com.github.seeseemelk:MockBukkit-v1.21:3.107.0")
     testImplementation("org.mockito:mockito-core:5.8.0")
-    testImplementation("com.github.seeseemelk:MockBukkit-v1.20:3.93.2")
 }
 
 java {

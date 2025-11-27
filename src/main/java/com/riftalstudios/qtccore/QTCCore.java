@@ -1,7 +1,9 @@
 package com.riftalstudios.qtccore;
 
+import com.riftalstudios.qtccore.commands.QTCCommand;
 import com.riftalstudios.qtccore.config.ConfigManager;
 import com.riftalstudios.qtccore.config.MessageConfig;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +25,8 @@ public class QTCCore extends JavaPlugin {
         configManager = new ConfigManager(this);
         messageConfig = new MessageConfig(this);
         getLogger().info("Configuration loaded successfully");
+
+        registerCommands();
 
         enableManagers();
 
@@ -92,5 +96,15 @@ public class QTCCore extends JavaPlugin {
 
     public MessageConfig getMessageConfig() {
         return messageConfig;
+    }
+
+    private void registerCommands() {
+        QTCCommand qtcCommand = new QTCCommand(this);
+        PluginCommand command = getCommand("qtc");
+        if (command != null) {
+            command.setExecutor(qtcCommand);
+            command.setTabCompleter(qtcCommand);
+            getLogger().info("Registered command: /qtc");
+        }
     }
 }
