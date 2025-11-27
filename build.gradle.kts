@@ -22,7 +22,7 @@ dependencies {
     implementation("com.zaxxer:HikariCP:5.1.0")
     implementation("org.xerial:sqlite-jdbc:3.45.0.0")
 
-    // Test dependencies
+    // Test dependencies (using Paper 1.21 for MockBukkit compatibility)
     testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("com.github.seeseemelk:MockBukkit-v1.21:3.107.0")

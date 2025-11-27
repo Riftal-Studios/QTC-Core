@@ -21,6 +21,7 @@ public class QTCCommand implements CommandExecutor, TabCompleter {
     public QTCCommand(QTCCore plugin) {
         this.plugin = plugin;
         registerSubCommand(new ReloadCommand(plugin));
+        registerSubCommand(new NodeCommand(plugin));
     }
 
     public void registerSubCommand(SubCommand subCommand) {
