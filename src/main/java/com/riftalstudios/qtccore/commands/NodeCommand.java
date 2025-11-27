@@ -81,7 +81,7 @@ public class NodeCommand implements SubCommand {
             return;
         }
 
-        Location loc = targetBlock.getLocation();
+        Location loc = targetBlock.getLocation().add(0, 1, 0);
         ResourceNode node = new ResourceNode(loc, type);
 
         plugin.getResourceNodeManager().createNode(node);
