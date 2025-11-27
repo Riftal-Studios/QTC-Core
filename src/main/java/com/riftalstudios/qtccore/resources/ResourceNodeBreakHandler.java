@@ -2,12 +2,12 @@ package com.riftalstudios.qtccore.resources;
 
 import com.riftalstudios.qtccore.QTCCore;
 import org.bukkit.Material;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerInteractEntityEvent;
-import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 
 import java.util.Map;
 import java.util.UUID;
@@ -18,7 +18,7 @@ public class ResourceNodeBreakHandler implements Listener {
     private final QTCCore plugin;
     private final ResourceNodeManager nodeManager;
     private final Map<UUID, Long> lastInteraction = new ConcurrentHashMap<>();
-    private static final long INTERACTION_COOLDOWN_MS = 500;
+    private static final long INTERACTION_COOLDOWN_MS = 250;
 
     public ResourceNodeBreakHandler(QTCCore plugin, ResourceNodeManager nodeManager) {
         this.plugin = plugin;
@@ -31,9 +31,11 @@ public class ResourceNodeBreakHandler implements Listener {
     }
 
     @EventHandler
-    public void onInteract(PlayerInteractEntityEvent event) {
-        if (event.getHand() != EquipmentSlot.HAND) return;
-        if (!(event.getRightClicked() instanceof Interaction interaction)) return;
+    public void onAttack(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Player player)) return;
+
+        Entity entity = event.getEntity();
+        if (!(entity instanceof Interaction interaction)) return;
 
         NodeDisplayManager displayManager = nodeManager.getDisplayManager();
         if (displayManager == null) return;
@@ -41,7 +43,6 @@ public class ResourceNodeBreakHandler implements Listener {
 
         event.setCancelled(true);
 
-        Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
         long now = System.currentTimeMillis();
