@@ -131,4 +131,41 @@ public class NodeDisplayManager {
     public boolean isResourceNodeInteraction(Interaction interaction) {
         return interaction.getPersistentDataContainer().has(nodeIdKey, PersistentDataType.STRING);
     }
+
+    public void playHitAnimation(UUID nodeId) {
+        UUID displayId = nodeToDisplay.get(nodeId);
+        if (displayId == null) return;
+
+        Entity entity = plugin.getServer().getEntity(displayId);
+        if (!(entity instanceof BlockDisplay display)) return;
+
+        // Random shake direction
+        float shakeX = (float) ((Math.random() - 0.5) * 0.1);
+        float shakeZ = (float) ((Math.random() - 0.5) * 0.1);
+
+        // Apply shake offset
+        Transformation shakeTransform = new Transformation(
+                new Vector3f(-0.5f + shakeX, -0.5f, -0.5f + shakeZ),
+                new AxisAngle4f(0, 0, 0, 1),
+                new Vector3f(1, 1, 1),
+                new AxisAngle4f(0, 0, 0, 1)
+        );
+        display.setInterpolationDuration(1);
+        display.setInterpolationDelay(0);
+        display.setTransformation(shakeTransform);
+
+        // Reset after 2 ticks
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!display.isValid()) return;
+            Transformation normalTransform = new Transformation(
+                    new Vector3f(-0.5f, -0.5f, -0.5f),
+                    new AxisAngle4f(0, 0, 0, 1),
+                    new Vector3f(1, 1, 1),
+                    new AxisAngle4f(0, 0, 0, 1)
+            );
+            display.setInterpolationDuration(2);
+            display.setInterpolationDelay(0);
+            display.setTransformation(normalTransform);
+        }, 2L);
+    }
 }

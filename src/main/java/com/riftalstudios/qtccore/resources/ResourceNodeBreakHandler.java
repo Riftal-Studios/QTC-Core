@@ -1,7 +1,11 @@
 package com.riftalstudios.qtccore.resources;
 
 import com.riftalstudios.qtccore.QTCCore;
+import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.Player;
@@ -69,11 +73,82 @@ public class ResourceNodeBreakHandler implements Listener {
                 .append(net.kyori.adventure.text.Component.text(node.getMaxHp() + " HP", net.kyori.adventure.text.format.NamedTextColor.RED))
                 .build());
 
+        playHitEffects(player, node, interaction);
+
         if (node.getState() == NodeState.DEPLETED) {
+            playDepletedEffects(node, interaction);
             player.sendMessage(net.kyori.adventure.text.Component.text(
                     "You gathered resources from the " + node.getType().name().toLowerCase().replace("_", " ") + "!",
                     net.kyori.adventure.text.format.NamedTextColor.GREEN));
         }
+    }
+
+    private void playDepletedEffects(ResourceNode node, Interaction interaction) {
+        Location loc = interaction.getLocation().clone();
+        Material blockMaterial = node.getType().getDisplayBlock();
+        BlockData blockData = blockMaterial.createBlockData();
+
+        // Play break sound
+        Sound breakSound = getBreakSound(node.getType());
+        loc.getWorld().playSound(loc, breakSound, 1.0f, 1.0f);
+
+        // Spawn larger burst of particles for break
+        loc.getWorld().spawnParticle(
+                Particle.BLOCK,
+                loc.add(0, 0.5, 0),
+                30,
+                0.4, 0.4, 0.4,
+                0.1,
+                blockData
+        );
+    }
+
+    private Sound getBreakSound(ResourceType type) {
+        String typeName = type.name();
+        if (typeName.contains("TREE")) {
+            return Sound.BLOCK_WOOD_BREAK;
+        }
+        if (typeName.contains("ORE")) {
+            return Sound.BLOCK_STONE_BREAK;
+        }
+        return Sound.BLOCK_STONE_BREAK;
+    }
+
+    private void playHitEffects(Player player, ResourceNode node, Interaction interaction) {
+        Location loc = interaction.getLocation().clone();
+        Material blockMaterial = node.getType().getDisplayBlock();
+        BlockData blockData = blockMaterial.createBlockData();
+
+        // Play block hit sound
+        Sound hitSound = getHitSound(node.getType());
+        loc.getWorld().playSound(loc, hitSound, 1.0f, 0.8f + (float)(Math.random() * 0.4));
+
+        // Spawn block crack particles at hit location
+        loc.getWorld().spawnParticle(
+                Particle.BLOCK,
+                loc.add(0, 0.5, 0),
+                10,
+                0.3, 0.3, 0.3,
+                0.1,
+                blockData
+        );
+
+        // Play shake animation on the BlockDisplay
+        NodeDisplayManager displayManager = nodeManager.getDisplayManager();
+        if (displayManager != null) {
+            displayManager.playHitAnimation(node.getId());
+        }
+    }
+
+    private Sound getHitSound(ResourceType type) {
+        String typeName = type.name();
+        if (typeName.contains("TREE")) {
+            return Sound.BLOCK_WOOD_HIT;
+        }
+        if (typeName.contains("ORE")) {
+            return Sound.BLOCK_STONE_HIT;
+        }
+        return Sound.BLOCK_STONE_HIT;
     }
 
     private int calculateDamage(Player player, ResourceNode node) {
