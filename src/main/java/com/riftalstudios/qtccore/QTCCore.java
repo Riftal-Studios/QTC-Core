@@ -3,6 +3,8 @@ package com.riftalstudios.qtccore;
 import com.riftalstudios.qtccore.commands.QTCCommand;
 import com.riftalstudios.qtccore.config.ConfigManager;
 import com.riftalstudios.qtccore.config.MessageConfig;
+import com.riftalstudios.qtccore.resources.ResourceNodeManager;
+import com.riftalstudios.qtccore.storage.DatabaseManager;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.util.ArrayList;
@@ -14,6 +16,8 @@ public class QTCCore extends JavaPlugin {
     private final List<Manager> managers = new ArrayList<>();
     private ConfigManager configManager;
     private MessageConfig messageConfig;
+    private DatabaseManager databaseManager;
+    private ResourceNodeManager resourceNodeManager;
 
     @Override
     public void onEnable() {
@@ -25,6 +29,12 @@ public class QTCCore extends JavaPlugin {
         configManager = new ConfigManager(this);
         messageConfig = new MessageConfig(this);
         getLogger().info("Configuration loaded successfully");
+
+        databaseManager = new DatabaseManager(this);
+        databaseManager.connect();
+
+        resourceNodeManager = new ResourceNodeManager(this, databaseManager);
+        registerManager(resourceNodeManager);
 
         registerCommands();
 
@@ -38,6 +48,10 @@ public class QTCCore extends JavaPlugin {
         getLogger().info("QTC Core is shutting down...");
 
         disableManagers();
+
+        if (databaseManager != null) {
+            databaseManager.disconnect();
+        }
 
         getLogger().info("QTC Core has been disabled successfully!");
     }
@@ -96,6 +110,14 @@ public class QTCCore extends JavaPlugin {
 
     public MessageConfig getMessageConfig() {
         return messageConfig;
+    }
+
+    public DatabaseManager getDatabaseManager() {
+        return databaseManager;
+    }
+
+    public ResourceNodeManager getResourceNodeManager() {
+        return resourceNodeManager;
     }
 
     private void registerCommands() {
