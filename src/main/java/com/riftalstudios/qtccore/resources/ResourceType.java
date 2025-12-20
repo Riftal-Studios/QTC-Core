@@ -3,14 +3,14 @@ package com.riftalstudios.qtccore.resources;
 import org.bukkit.Material;
 
 public enum ResourceType {
-    OAK_TREE(Material.OAK_LOG, 100, 60),
-    BIRCH_TREE(Material.BIRCH_LOG, 80, 45),
-    SPRUCE_TREE(Material.SPRUCE_LOG, 120, 75),
-    DARK_OAK_TREE(Material.DARK_OAK_LOG, 150, 90),
-    IRON_ORE(Material.IRON_ORE, 200, 120),
-    GOLD_ORE(Material.GOLD_ORE, 250, 180),
-    DIAMOND_ORE(Material.DIAMOND_ORE, 400, 300),
-    COAL_ORE(Material.COAL_ORE, 100, 60);
+    OAK_TREE(Material.OAK_LOG, 5, 10),
+    BIRCH_TREE(Material.BIRCH_LOG, 5, 10),
+    SPRUCE_TREE(Material.SPRUCE_LOG, 5, 10),
+    DARK_OAK_TREE(Material.DARK_OAK_LOG, 5, 10),
+    IRON_ORE(Material.IRON_ORE, 5, 10),
+    GOLD_ORE(Material.GOLD_ORE, 5, 10),
+    DIAMOND_ORE(Material.DIAMOND_ORE, 5, 10),
+    COAL_ORE(Material.COAL_ORE, 5, 10);
 
     private final Material displayBlock;
     private final int defaultMaxHp;

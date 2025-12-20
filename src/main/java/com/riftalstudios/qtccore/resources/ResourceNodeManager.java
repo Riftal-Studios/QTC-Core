@@ -6,8 +6,12 @@ import com.riftalstudios.qtccore.storage.DatabaseManager;
 import com.riftalstudios.qtccore.storage.ResourceNodeStorage;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 
@@ -21,6 +25,9 @@ public class ResourceNodeManager implements Manager, Listener {
     private final ResourceNodeStorage storage;
     private final Map<UUID, ResourceNode> nodes = new ConcurrentHashMap<>();
     private final Map<String, Set<UUID>> chunkNodeMap = new ConcurrentHashMap<>();
+    private final Map<Long, Set<UUID>> locationNodeMap = new ConcurrentHashMap<>();
+
+    private PlayerNodeStateManager stateManager;
     private NodeDisplayManager displayManager;
     private ResourceNodeRegenerator regenerator;
     private ResourceNodeBreakHandler breakHandler;
@@ -32,10 +39,12 @@ public class ResourceNodeManager implements Manager, Listener {
     }
 
     public void initializeDisplay() {
-        this.displayManager = new NodeDisplayManager(plugin);
-        this.regenerator = new ResourceNodeRegenerator(plugin, this, displayManager);
-        this.breakHandler = new ResourceNodeBreakHandler(plugin, this);
+        this.stateManager = new PlayerNodeStateManager();
+        this.displayManager = new NodeDisplayManager(plugin, stateManager);
+        this.regenerator = new ResourceNodeRegenerator(plugin, this, stateManager, displayManager);
+        this.breakHandler = new ResourceNodeBreakHandler(plugin, this, stateManager);
         this.breakHandler.register();
+        this.regenerator.startRegenerationTask();
     }
 
     public NodeDisplayManager getDisplayManager() {
@@ -46,6 +55,10 @@ public class ResourceNodeManager implements Manager, Listener {
         return regenerator;
     }
 
+    public PlayerNodeStateManager getStateManager() {
+        return stateManager;
+    }
+
     @Override
     public void enable() {
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -54,15 +67,19 @@ public class ResourceNodeManager implements Manager, Listener {
 
     @Override
     public void disable() {
+        if (breakHandler != null) {
+            breakHandler.unregister();
+        }
         if (regenerator != null) {
             regenerator.cancelAll();
         }
-        if (displayManager != null) {
-            displayManager.removeAllDisplays();
+        if (stateManager != null) {
+            stateManager.clear();
         }
         saveAllNodes();
         nodes.clear();
         chunkNodeMap.clear();
+        locationNodeMap.clear();
         plugin.getLogger().info("ResourceNodeManager disabled");
     }
 
@@ -74,9 +91,12 @@ public class ResourceNodeManager implements Manager, Listener {
     public void createNode(ResourceNode node) {
         nodes.put(node.getId(), node);
         addToChunkMap(node);
+        addToLocationMap(node);
         storage.saveNode(node);
+
+        // Show to all online players
         if (displayManager != null) {
-            displayManager.showNode(node);
+            displayManager.showNodeToAll(node);
         }
         plugin.getLogger().info("Created node: " + node.getId() + " at " + formatLocation(node.getLocation()));
     }
@@ -85,9 +105,15 @@ public class ResourceNodeManager implements Manager, Listener {
         ResourceNode node = nodes.remove(nodeId);
         if (node != null) {
             removeFromChunkMap(node);
+            removeFromLocationMap(node);
             storage.deleteNode(nodeId);
+
+            // Hide from all players and clean up state
             if (displayManager != null) {
-                displayManager.hideNode(node);
+                displayManager.hideNodeFromAll(node);
+            }
+            if (stateManager != null) {
+                stateManager.removeNode(nodeId);
             }
             if (regenerator != null) {
                 regenerator.cancelRegeneration(nodeId);
@@ -98,6 +124,23 @@ public class ResourceNodeManager implements Manager, Listener {
 
     public ResourceNode getNode(UUID nodeId) {
         return nodes.get(nodeId);
+    }
+
+    /**
+     * Get a node at the specified location.
+     */
+    public ResourceNode getNodeAt(Location location) {
+        long key = locationKey(location);
+        Set<UUID> nodeIds = locationNodeMap.get(key);
+        if (nodeIds == null || nodeIds.isEmpty()) return null;
+
+        for (UUID id : nodeIds) {
+            ResourceNode node = nodes.get(id);
+            if (node != null && node.getState() == NodeState.ACTIVE) {
+                return node;
+            }
+        }
+        return null;
     }
 
     public ResourceNode getNearestNode(Location location, double maxDistance) {
@@ -138,19 +181,59 @@ public class ResourceNodeManager implements Manager, Listener {
         return nodes.size();
     }
 
-    public void damageNode(ResourceNode node, int damage) {
-        boolean wasDepleted = node.damage(damage);
-        storage.saveNode(node);
+    // Player join - send all nearby nodes
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
 
-        if (wasDepleted) {
+        // Delay slightly to ensure player is fully loaded
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline()) return;
+
             if (displayManager != null) {
-                displayManager.hideNode(node);
+                displayManager.sendAllNodesToPlayer(player, nodes.values());
             }
-            if (regenerator != null) {
-                regenerator.scheduleRegeneration(node);
-            }
-            plugin.getLogger().info("Node " + node.getId().toString().substring(0, 8) + " depleted");
+        }, 5L);
+    }
+
+    // Player quit - clean up state
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+
+        if (displayManager != null) {
+            displayManager.removeAllForPlayer(player);
         }
+        if (stateManager != null) {
+            stateManager.removePlayer(player.getUniqueId());
+        }
+    }
+
+    // Player respawn - resend nodes
+    @EventHandler
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline()) return;
+
+            // Reset display states and resend
+            if (stateManager != null) {
+                var states = stateManager.getPlayerStates(player.getUniqueId());
+                for (PlayerNodeState state : states.values()) {
+                    state.setDisplaySpawned(false);
+                }
+            }
+
+            if (displayManager != null) {
+                for (ResourceNode node : nodes.values()) {
+                    PlayerNodeState state = stateManager.getState(player.getUniqueId(), node.getId());
+                    if (state == null || !state.isDepleted()) {
+                        displayManager.showNodeToPlayer(player, node);
+                    }
+                }
+            }
+        }, 5L);
     }
 
     @EventHandler
@@ -166,8 +249,11 @@ public class ResourceNodeManager implements Manager, Listener {
                     if (!nodes.containsKey(node.getId())) {
                         nodes.put(node.getId(), node);
                         addToChunkMap(node);
+                        addToLocationMap(node);
+
+                        // Show to all online players
                         if (displayManager != null && node.getState() == NodeState.ACTIVE) {
-                            displayManager.showNode(node);
+                            displayManager.showNodeToAll(node);
                         }
                     }
                 }
@@ -185,9 +271,11 @@ public class ResourceNodeManager implements Manager, Listener {
             for (UUID id : nodeIds) {
                 ResourceNode node = nodes.remove(id);
                 if (node != null) {
+                    removeFromLocationMap(node);
                     storage.saveNode(node);
+
                     if (displayManager != null) {
-                        displayManager.hideNode(node);
+                        displayManager.hideNodeFromAll(node);
                     }
                 }
             }
@@ -213,8 +301,29 @@ public class ResourceNodeManager implements Manager, Listener {
         }
     }
 
+    private void addToLocationMap(ResourceNode node) {
+        long key = locationKey(node.getLocation());
+        locationNodeMap.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet()).add(node.getId());
+    }
+
+    private void removeFromLocationMap(ResourceNode node) {
+        long key = locationKey(node.getLocation());
+        Set<UUID> nodeIds = locationNodeMap.get(key);
+        if (nodeIds != null) {
+            nodeIds.remove(node.getId());
+        }
+    }
+
     private String chunkKey(String world, int chunkX, int chunkZ) {
         return world + ":" + chunkX + ":" + chunkZ;
+    }
+
+    private long locationKey(Location loc) {
+        // Pack x, y, z into a long for fast lookup
+        int x = loc.getBlockX();
+        int y = loc.getBlockY();
+        int z = loc.getBlockZ();
+        return ((long) x & 0x3FFFFFF) | (((long) z & 0x3FFFFFF) << 26) | (((long) y & 0xFFF) << 52);
     }
 
     private String formatLocation(Location loc) {
