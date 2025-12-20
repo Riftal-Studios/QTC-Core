@@ -62,12 +62,22 @@ public class DatabaseManager {
                     state TEXT NOT NULL,
                     depleted_at INTEGER DEFAULT 0,
                     chunk_x INTEGER NOT NULL,
-                    chunk_z INTEGER NOT NULL
+                    chunk_z INTEGER NOT NULL,
+                    template_id TEXT,
+                    blocks_json TEXT
                 )
             """);
 
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_nodes_chunk ON resource_nodes(world, chunk_x, chunk_z)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_nodes_world ON resource_nodes(world)");
+
+            // Add columns if they don't exist (migration for existing databases)
+            try {
+                stmt.execute("ALTER TABLE resource_nodes ADD COLUMN IF NOT EXISTS template_id TEXT");
+                stmt.execute("ALTER TABLE resource_nodes ADD COLUMN IF NOT EXISTS blocks_json TEXT");
+            } catch (SQLException ignored) {
+                // Columns already exist
+            }
 
             plugin.getLogger().info("Database tables created");
         } catch (SQLException e) {

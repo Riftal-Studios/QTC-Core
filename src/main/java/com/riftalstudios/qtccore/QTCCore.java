@@ -4,6 +4,7 @@ import com.riftalstudios.qtccore.commands.QTCCommand;
 import com.riftalstudios.qtccore.config.ConfigManager;
 import com.riftalstudios.qtccore.config.MessageConfig;
 import com.riftalstudios.qtccore.resources.ResourceNodeManager;
+import com.riftalstudios.qtccore.resources.template.NodeTemplateManager;
 import com.riftalstudios.qtccore.storage.DatabaseManager;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -18,6 +19,7 @@ public class QTCCore extends JavaPlugin {
     private MessageConfig messageConfig;
     private DatabaseManager databaseManager;
     private ResourceNodeManager resourceNodeManager;
+    private NodeTemplateManager nodeTemplateManager;
 
     @Override
     public void onEnable() {
@@ -35,6 +37,9 @@ public class QTCCore extends JavaPlugin {
 
         resourceNodeManager = new ResourceNodeManager(this, databaseManager);
         registerManager(resourceNodeManager);
+
+        nodeTemplateManager = new NodeTemplateManager(this);
+        registerManager(nodeTemplateManager);
 
         registerCommands();
 
@@ -121,6 +126,10 @@ public class QTCCore extends JavaPlugin {
 
     public ResourceNodeManager getResourceNodeManager() {
         return resourceNodeManager;
+    }
+
+    public NodeTemplateManager getNodeTemplateManager() {
+        return nodeTemplateManager;
     }
 
     private void registerCommands() {

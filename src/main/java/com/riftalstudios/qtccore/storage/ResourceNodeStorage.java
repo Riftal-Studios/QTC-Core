@@ -4,8 +4,10 @@ import com.riftalstudios.qtccore.QTCCore;
 import com.riftalstudios.qtccore.resources.NodeState;
 import com.riftalstudios.qtccore.resources.ResourceNode;
 import com.riftalstudios.qtccore.resources.ResourceType;
+import com.riftalstudios.qtccore.resources.template.BlockOffset;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 
 import java.sql.*;
@@ -29,9 +31,9 @@ public class ResourceNodeStorage {
             // H2 MERGE syntax for upsert
             String sql = """
                 MERGE INTO resource_nodes
-                (id, world, x, y, z, type, max_hp, current_hp, state, depleted_at, chunk_x, chunk_z)
+                (id, world, x, y, z, type, max_hp, current_hp, state, depleted_at, chunk_x, chunk_z, template_id, blocks_json)
                 KEY (id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
             try (Connection conn = database.getConnection();
@@ -39,9 +41,9 @@ public class ResourceNodeStorage {
 
                 stmt.setString(1, node.getId().toString());
                 stmt.setString(2, node.getWorldName());
-                stmt.setInt(3, node.getLocation().getBlockX());
-                stmt.setInt(4, node.getLocation().getBlockY());
-                stmt.setInt(5, node.getLocation().getBlockZ());
+                stmt.setInt(3, node.getBaseLocation().getBlockX());
+                stmt.setInt(4, node.getBaseLocation().getBlockY());
+                stmt.setInt(5, node.getBaseLocation().getBlockZ());
                 stmt.setString(6, node.getType().name());
                 stmt.setInt(7, node.getMaxHp());
                 stmt.setInt(8, node.getCurrentHp());
@@ -49,12 +51,58 @@ public class ResourceNodeStorage {
                 stmt.setLong(10, node.getDepletedAt());
                 stmt.setInt(11, node.getChunkX());
                 stmt.setInt(12, node.getChunkZ());
+                stmt.setString(13, node.getTemplateId());
+                stmt.setString(14, serializeBlocks(node.getBlocks()));
 
                 stmt.executeUpdate();
             } catch (SQLException e) {
                 plugin.getLogger().severe("Failed to save node: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * Serialize blocks to a simple JSON-like format.
+     * Format: "x,y,z,MATERIAL;x,y,z,MATERIAL;..."
+     */
+    private String serializeBlocks(List<BlockOffset> blocks) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < blocks.size(); i++) {
+            BlockOffset offset = blocks.get(i);
+            if (i > 0) sb.append(";");
+            sb.append(offset.x()).append(",")
+              .append(offset.y()).append(",")
+              .append(offset.z()).append(",")
+              .append(offset.material().name());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Deserialize blocks from a simple format.
+     */
+    private List<BlockOffset> deserializeBlocks(String blocksJson, ResourceType type) {
+        List<BlockOffset> blocks = new ArrayList<>();
+
+        if (blocksJson == null || blocksJson.isEmpty()) {
+            // Default single block for legacy nodes
+            blocks.add(new BlockOffset(0, 0, 0, type.getDefaultMaterial()));
+            return blocks;
+        }
+
+        String[] parts = blocksJson.split(";");
+        for (String part : parts) {
+            String[] values = part.split(",");
+            if (values.length >= 4) {
+                int x = Integer.parseInt(values[0]);
+                int y = Integer.parseInt(values[1]);
+                int z = Integer.parseInt(values[2]);
+                Material material = Material.valueOf(values[3]);
+                blocks.add(new BlockOffset(x, y, z, material));
+            }
+        }
+
+        return blocks;
     }
 
     public CompletableFuture<List<ResourceNode>> loadNodesInChunk(String worldName, int chunkX, int chunkZ) {
@@ -151,12 +199,17 @@ public class ResourceNodeStorage {
         int x = rs.getInt("x");
         int y = rs.getInt("y");
         int z = rs.getInt("z");
-        Location location = new Location(world, x, y, z);
+        Location baseLocation = new Location(world, x, y, z);
 
         ResourceType type = ResourceType.valueOf(rs.getString("type"));
         int maxHp = rs.getInt("max_hp");
 
-        ResourceNode node = new ResourceNode(id, location, type, maxHp);
+        // Load template ID and blocks for multi-block support
+        String templateId = rs.getString("template_id");
+        String blocksJson = rs.getString("blocks_json");
+        List<BlockOffset> blocks = deserializeBlocks(blocksJson, type);
+
+        ResourceNode node = new ResourceNode(id, baseLocation, type, maxHp, templateId, blocks);
         node.setCurrentHp(rs.getInt("current_hp"));
         node.setState(NodeState.valueOf(rs.getString("state")));
 

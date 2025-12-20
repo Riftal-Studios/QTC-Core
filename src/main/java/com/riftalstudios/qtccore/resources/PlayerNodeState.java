@@ -1,10 +1,13 @@
 package com.riftalstudios.qtccore.resources;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
  * Tracks per-player state for a resource node.
- * Each player has independent HP, cooldowns, and display entity for each node.
+ * Each player has independent HP, cooldowns, and display entities for each node.
+ * Supports multi-block nodes with multiple display/interaction entity pairs.
  */
 public class PlayerNodeState {
 
@@ -14,9 +17,15 @@ public class PlayerNodeState {
     private final int maxHp;
     private long lastHitTime;
     private long regenerateAtTime;
+    private boolean displaySpawned;
+
+    // Multi-block support: one entity pair per block
+    private final List<Integer> displayEntityIds;
+    private final List<Integer> interactionEntityIds;
+
+    // Legacy single-block access (for backwards compatibility)
     private int displayEntityId;
     private int interactionEntityId;
-    private boolean displaySpawned;
 
     public PlayerNodeState(UUID playerId, UUID nodeId, int maxHp) {
         this.playerId = playerId;
@@ -28,6 +37,8 @@ public class PlayerNodeState {
         this.displayEntityId = -1;
         this.interactionEntityId = -1;
         this.displaySpawned = false;
+        this.displayEntityIds = new ArrayList<>();
+        this.interactionEntityIds = new ArrayList<>();
     }
 
     public UUID getPlayerId() {
@@ -92,6 +103,8 @@ public class PlayerNodeState {
         this.regenerateAtTime = System.currentTimeMillis() + delayMs;
     }
 
+    // ==================== Legacy Single-Block Access ====================
+
     public int getDisplayEntityId() {
         return displayEntityId;
     }
@@ -107,6 +120,71 @@ public class PlayerNodeState {
     public void setInteractionEntityId(int entityId) {
         this.interactionEntityId = entityId;
     }
+
+    // ==================== Multi-Block Entity Access ====================
+
+    /**
+     * Get all display entity IDs for this node.
+     */
+    public List<Integer> getDisplayEntityIds() {
+        return displayEntityIds;
+    }
+
+    /**
+     * Get all interaction entity IDs for this node.
+     */
+    public List<Integer> getInteractionEntityIds() {
+        return interactionEntityIds;
+    }
+
+    /**
+     * Add a display entity ID.
+     */
+    public void addDisplayEntityId(int entityId) {
+        displayEntityIds.add(entityId);
+        // Keep legacy field updated with first ID
+        if (displayEntityId == -1) {
+            displayEntityId = entityId;
+        }
+    }
+
+    /**
+     * Add an interaction entity ID.
+     */
+    public void addInteractionEntityId(int entityId) {
+        interactionEntityIds.add(entityId);
+        // Keep legacy field updated with first ID
+        if (interactionEntityId == -1) {
+            interactionEntityId = entityId;
+        }
+    }
+
+    /**
+     * Get all entity IDs (display + interaction) as a flat array.
+     */
+    public int[] getAllEntityIds() {
+        int[] ids = new int[displayEntityIds.size() + interactionEntityIds.size()];
+        int i = 0;
+        for (int id : displayEntityIds) {
+            ids[i++] = id;
+        }
+        for (int id : interactionEntityIds) {
+            ids[i++] = id;
+        }
+        return ids;
+    }
+
+    /**
+     * Clear all entity IDs (on hide).
+     */
+    public void clearEntityIds() {
+        displayEntityIds.clear();
+        interactionEntityIds.clear();
+        displayEntityId = -1;
+        interactionEntityId = -1;
+    }
+
+    // ==================== Display State ====================
 
     public boolean isDisplaySpawned() {
         return displaySpawned;

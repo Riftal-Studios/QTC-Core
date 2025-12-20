@@ -20,6 +20,8 @@ import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Player;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -118,10 +120,22 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
         });
     }
 
+    /**
+     * Find a node by checking if the entity ID matches any interaction entity
+     * in the player's tracked states (supports multi-block nodes).
+     */
     private ResourceNode findNodeByInteractionEntityId(UUID playerId, int entityId) {
         var states = stateManager.getPlayerStates(playerId);
         for (var entry : states.entrySet()) {
-            if (entry.getValue().getInteractionEntityId() == entityId) {
+            PlayerNodeState state = entry.getValue();
+            // Check all interaction entity IDs (multi-block support)
+            for (int interactionId : state.getInteractionEntityIds()) {
+                if (interactionId == entityId) {
+                    return nodeManager.getNode(entry.getKey());
+                }
+            }
+            // Also check legacy single ID for backward compatibility
+            if (state.getInteractionEntityId() == entityId) {
                 return nodeManager.getNode(entry.getKey());
             }
         }
@@ -177,6 +191,9 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
             displayManager.hideNodeFromPlayer(player, node);
         }
 
+        // Drop loot based on the blocks in the node
+        dropNodeLoot(player, node, loc);
+
         // Schedule regeneration for this player
         long regenTimeMs = node.getType().getDefaultRespawnSeconds() * 1000L;
         state.scheduleRegeneration(regenTimeMs);
@@ -186,7 +203,46 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
                 "You gathered resources from the " + node.getType().name().toLowerCase().replace("_", " ") + "!",
                 NamedTextColor.GREEN));
 
-        // TODO: Drop loot, grant XP
+        // TODO: Grant XP via MMOCore integration
+    }
+
+    private void dropNodeLoot(Player player, ResourceNode node, Location loc) {
+        World world = loc.getWorld();
+        if (world == null) return;
+
+        org.bukkit.inventory.ItemStack tool = player.getInventory().getItemInMainHand();
+        Location dropLoc = loc.clone().add(0.5, 0.5, 0.5);
+
+        // Drop items for each block in the node
+        for (var offset : node.getBlocks()) {
+            Material material = offset.material();
+
+            // Skip non-item materials (like air)
+            if (!material.isItem()) continue;
+
+            // Get the block location for this offset
+            Location blockLoc = node.getBaseLocation().clone().add(offset.x(), offset.y(), offset.z());
+
+            // Temporarily place the block to get proper drops
+            Material originalMaterial = blockLoc.getBlock().getType();
+            blockLoc.getBlock().setType(material, false);
+
+            // Get drops with the player's tool (respects fortune, silk touch, etc.)
+            Collection<org.bukkit.inventory.ItemStack> drops = blockLoc.getBlock().getDrops(tool);
+
+            // Restore original block state
+            blockLoc.getBlock().setType(originalMaterial, false);
+
+            // If no drops (shouldn't happen for valid blocks), drop the material itself
+            if (drops.isEmpty()) {
+                drops = List.of(new org.bukkit.inventory.ItemStack(material));
+            }
+
+            // Drop all items
+            for (org.bukkit.inventory.ItemStack drop : drops) {
+                world.dropItemNaturally(dropLoc, drop);
+            }
+        }
     }
 
     private void playHitEffects(Player player, ResourceNode node, Location loc) {
@@ -240,48 +296,21 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
     }
 
     private Sound getHitSound(ResourceType type) {
-        String typeName = type.name();
-        if (typeName.contains("TREE")) {
-            return Sound.BLOCK_WOOD_HIT;
-        }
-        if (typeName.contains("ORE")) {
-            return Sound.BLOCK_STONE_HIT;
-        }
-        return Sound.BLOCK_STONE_HIT;
+        return type.getHitSound();
     }
 
     private Sound getBreakSound(ResourceType type) {
-        String typeName = type.name();
-        if (typeName.contains("TREE")) {
-            return Sound.BLOCK_WOOD_BREAK;
-        }
-        if (typeName.contains("ORE")) {
-            return Sound.BLOCK_STONE_BREAK;
-        }
-        return Sound.BLOCK_STONE_BREAK;
+        return type.getBreakSound();
     }
 
     private int calculateDamage(Player player, ResourceNode node) {
         Material tool = player.getInventory().getItemInMainHand().getType();
         ResourceType type = node.getType();
 
-        if (isCorrectTool(tool, type)) {
+        if (type.isCorrectTool(tool)) {
             return getToolPower(tool);
         }
         return 1;
-    }
-
-    private boolean isCorrectTool(Material tool, ResourceType type) {
-        String toolName = tool.name();
-        String typeName = type.name();
-
-        if (typeName.contains("TREE")) {
-            return toolName.contains("AXE") && !toolName.contains("PICKAXE");
-        }
-        if (typeName.contains("ORE")) {
-            return toolName.contains("PICKAXE");
-        }
-        return false;
     }
 
     private int getToolPower(Material tool) {

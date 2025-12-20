@@ -289,6 +289,12 @@ public class ResourceNodeManager implements Manager, Listener {
     // Block placement at node locations (even when depleted)
     @EventHandler
     public void onBlockPlace(BlockPlaceEvent event) {
+        // Skip if player is in template editing mode
+        if (plugin.getNodeTemplateManager() != null &&
+            plugin.getNodeTemplateManager().isEditing(event.getPlayer())) {
+            return;
+        }
+
         Location loc = event.getBlock().getLocation();
         if (hasNodeAtLocation(loc)) {
             event.setCancelled(true);
@@ -305,12 +311,14 @@ public class ResourceNodeManager implements Manager, Listener {
     }
 
     /**
-     * Clear any block at the node location (used before spawning).
+     * Clear any blocks at all node locations (used before spawning).
+     * Supports multi-block nodes.
      */
     public void clearBlockAtNode(ResourceNode node) {
-        Location loc = node.getLocation();
-        if (loc.getBlock().getType() != org.bukkit.Material.AIR) {
-            loc.getBlock().setType(org.bukkit.Material.AIR, false);
+        for (Location loc : node.getAllBlockLocations()) {
+            if (loc.getBlock().getType() != org.bukkit.Material.AIR) {
+                loc.getBlock().setType(org.bukkit.Material.AIR, false);
+            }
         }
     }
 
@@ -333,16 +341,28 @@ public class ResourceNodeManager implements Manager, Listener {
         }
     }
 
+    /**
+     * Add all block locations of a node to the location map.
+     * Supports multi-block nodes.
+     */
     private void addToLocationMap(ResourceNode node) {
-        long key = locationKey(node.getLocation());
-        locationNodeMap.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet()).add(node.getId());
+        for (Location loc : node.getAllBlockLocations()) {
+            long key = locationKey(loc);
+            locationNodeMap.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet()).add(node.getId());
+        }
     }
 
+    /**
+     * Remove all block locations of a node from the location map.
+     * Supports multi-block nodes.
+     */
     private void removeFromLocationMap(ResourceNode node) {
-        long key = locationKey(node.getLocation());
-        Set<UUID> nodeIds = locationNodeMap.get(key);
-        if (nodeIds != null) {
-            nodeIds.remove(node.getId());
+        for (Location loc : node.getAllBlockLocations()) {
+            long key = locationKey(loc);
+            Set<UUID> nodeIds = locationNodeMap.get(key);
+            if (nodeIds != null) {
+                nodeIds.remove(node.getId());
+            }
         }
     }
 
