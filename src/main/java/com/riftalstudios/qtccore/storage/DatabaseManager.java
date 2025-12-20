@@ -19,10 +19,10 @@ public class DatabaseManager {
     }
 
     public void connect() {
-        File dbFile = new File(plugin.getDataFolder(), "qtccore.db");
+        File dbFile = new File(plugin.getDataFolder(), "qtccore");
 
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
+        config.setJdbcUrl("jdbc:h2:file:" + dbFile.getAbsolutePath() + ";MODE=MySQL");
         config.setMaximumPoolSize(10);
         config.setMinimumIdle(2);
         config.setConnectionTimeout(30000);

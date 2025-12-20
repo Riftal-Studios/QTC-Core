@@ -24,9 +24,9 @@ dependencies {
     // PacketEvents - client-side packet manipulation
     compileOnly("com.github.retrooper:packetevents-spigot:2.7.0")
 
-    // Database
-    implementation("com.zaxxer:HikariCP:5.1.0")
-    implementation("org.xerial:sqlite-jdbc:3.45.0.0")
+    // Database (downloaded at runtime via plugin.yml libraries)
+    compileOnly("com.zaxxer:HikariCP:5.1.0")
+    compileOnly("com.h2database:h2:2.2.224")
 
     // Test dependencies (using Paper 1.21 for MockBukkit compatibility)
     testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
@@ -49,9 +49,6 @@ tasks {
     shadowJar {
         archiveClassifier.set("")
         archiveFileName.set("${project.name}-${project.version}.jar")
-
-        relocate("com.zaxxer.hikari", "com.riftalstudios.qtccore.libs.hikari")
-        relocate("org.sqlite", "com.riftalstudios.qtccore.libs.sqlite")
     }
 
     test {
