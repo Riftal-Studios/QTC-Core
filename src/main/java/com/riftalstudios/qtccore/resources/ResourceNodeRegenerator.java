@@ -72,6 +72,9 @@ public class ResourceNodeRegenerator {
         ResourceNode node = nodeManager.getNode(state.getNodeId());
         if (node == null) return;
 
+        // Clear any block that might have been placed at the node location
+        nodeManager.clearBlockAtNode(node);
+
         // Reset player's HP for this node
         state.resetHp();
 

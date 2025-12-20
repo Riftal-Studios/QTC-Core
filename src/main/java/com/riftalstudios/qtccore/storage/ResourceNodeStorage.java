@@ -26,9 +26,11 @@ public class ResourceNodeStorage {
 
     public CompletableFuture<Void> saveNode(ResourceNode node) {
         return CompletableFuture.runAsync(() -> {
+            // H2 MERGE syntax for upsert
             String sql = """
-                INSERT OR REPLACE INTO resource_nodes
+                MERGE INTO resource_nodes
                 (id, world, x, y, z, type, max_hp, current_hp, state, depleted_at, chunk_x, chunk_z)
+                KEY (id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 

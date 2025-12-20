@@ -9,6 +9,7 @@ import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
@@ -93,6 +94,9 @@ public class ResourceNodeManager implements Manager, Listener {
         addToChunkMap(node);
         addToLocationMap(node);
         storage.saveNode(node);
+
+        // Clear any existing block at the node location
+        clearBlockAtNode(node);
 
         // Show to all online players
         if (displayManager != null) {
@@ -279,6 +283,34 @@ public class ResourceNodeManager implements Manager, Listener {
                     }
                 }
             }
+        }
+    }
+
+    // Block placement at node locations (even when depleted)
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent event) {
+        Location loc = event.getBlock().getLocation();
+        if (hasNodeAtLocation(loc)) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Check if there's a node at this location (regardless of state).
+     */
+    public boolean hasNodeAtLocation(Location location) {
+        long key = locationKey(location);
+        Set<UUID> nodeIds = locationNodeMap.get(key);
+        return nodeIds != null && !nodeIds.isEmpty();
+    }
+
+    /**
+     * Clear any block at the node location (used before spawning).
+     */
+    public void clearBlockAtNode(ResourceNode node) {
+        Location loc = node.getLocation();
+        if (loc.getBlock().getType() != org.bukkit.Material.AIR) {
+            loc.getBlock().setType(org.bukkit.Material.AIR, false);
         }
     }
 

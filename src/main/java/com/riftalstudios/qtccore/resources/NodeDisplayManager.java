@@ -7,6 +7,7 @@ import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
+import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.util.Vector3f;
 import com.github.retrooper.packetevents.util.Vector3i;
@@ -127,26 +128,28 @@ public class NodeDisplayManager {
      */
     public void hideNodeFromPlayer(Player player, ResourceNode node) {
         PlayerNodeState state = stateManager.getState(player.getUniqueId(), node.getId());
-        if (state == null || !state.isDisplaySpawned()) return;
-
-        WrapperPlayServerDestroyEntities destroyPacket = new WrapperPlayServerDestroyEntities(
-                state.getDisplayEntityId(),
-                state.getInteractionEntityId()
-        );
-
-        // Restore the real block (remove barrier collision)
-        Location loc = node.getLocation();
-        Vector3i blockPos = new Vector3i(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
-        Material realBlock = loc.getBlock().getType();
-        StateType realStateType = materialToStateType(realBlock);
-        WrappedBlockState realState = realStateType.createBlockState();
-        WrapperPlayServerBlockChange restorePacket = new WrapperPlayServerBlockChange(blockPos, realState.getGlobalId());
 
         var user = PacketEvents.getAPI().getPlayerManager().getUser(player);
-        user.sendPacket(destroyPacket);
+        if (user == null) return;
+
+        // Always restore the real block (remove barrier collision)
+        // This is done regardless of displaySpawned state to ensure barrier cleanup
+        Location loc = node.getLocation();
+        Vector3i blockPos = new Vector3i(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+        // Use SpigotConversionUtil to preserve block data (orientation, properties, etc.)
+        WrappedBlockState realState = SpigotConversionUtil.fromBukkitBlockData(loc.getBlock().getBlockData());
+        WrapperPlayServerBlockChange restorePacket = new WrapperPlayServerBlockChange(blockPos, realState.getGlobalId());
         user.sendPacket(restorePacket);
 
-        state.setDisplaySpawned(false);
+        // Only destroy entities if they were spawned
+        if (state != null && state.isDisplaySpawned()) {
+            WrapperPlayServerDestroyEntities destroyPacket = new WrapperPlayServerDestroyEntities(
+                    state.getDisplayEntityId(),
+                    state.getInteractionEntityId()
+            );
+            user.sendPacket(destroyPacket);
+            state.setDisplaySpawned(false);
+        }
     }
 
     /**
@@ -241,24 +244,37 @@ public class NodeDisplayManager {
         var states = stateManager.getPlayerStates(player.getUniqueId());
         if (states.isEmpty()) return;
 
-        // Collect both display and interaction entity IDs
+        var user = PacketEvents.getAPI().getPlayerManager().getUser(player);
+        if (user == null) return;
+
+        // Collect entity IDs to destroy and restore all barriers
         var spawnedStates = states.values().stream()
                 .filter(PlayerNodeState::isDisplaySpawned)
                 .toList();
 
-        if (spawnedStates.isEmpty()) return;
-
-        int[] entityIds = new int[spawnedStates.size() * 2];
-        int i = 0;
-        for (PlayerNodeState state : spawnedStates) {
-            entityIds[i++] = state.getDisplayEntityId();
-            entityIds[i++] = state.getInteractionEntityId();
+        // Destroy all spawned display entities
+        if (!spawnedStates.isEmpty()) {
+            int[] entityIds = new int[spawnedStates.size() * 2];
+            int i = 0;
+            for (PlayerNodeState state : spawnedStates) {
+                entityIds[i++] = state.getDisplayEntityId();
+                entityIds[i++] = state.getInteractionEntityId();
+            }
+            WrapperPlayServerDestroyEntities destroyPacket = new WrapperPlayServerDestroyEntities(entityIds);
+            user.sendPacket(destroyPacket);
         }
 
-        WrapperPlayServerDestroyEntities destroyPacket = new WrapperPlayServerDestroyEntities(entityIds);
-        var user = PacketEvents.getAPI().getPlayerManager().getUser(player);
-        if (user != null) {
-            user.sendPacket(destroyPacket);
+        // Restore all barrier blocks (for any node this player has interacted with)
+        for (PlayerNodeState state : states.values()) {
+            ResourceNode node = plugin.getResourceNodeManager().getNode(state.getNodeId());
+            if (node != null) {
+                Location loc = node.getLocation();
+                Vector3i blockPos = new Vector3i(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+                // Use SpigotConversionUtil to preserve block data (orientation, properties, etc.)
+                WrappedBlockState realState = SpigotConversionUtil.fromBukkitBlockData(loc.getBlock().getBlockData());
+                WrapperPlayServerBlockChange restorePacket = new WrapperPlayServerBlockChange(blockPos, realState.getGlobalId());
+                user.sendPacket(restorePacket);
+            }
         }
     }
 
@@ -266,29 +282,9 @@ public class NodeDisplayManager {
      * Convert Bukkit Material to PacketEvents StateType.
      */
     private StateType materialToStateType(Material material) {
-        String name = material.name();
-        return switch (name) {
-            case "AIR" -> StateTypes.AIR;
-            case "CAVE_AIR" -> StateTypes.CAVE_AIR;
-            case "VOID_AIR" -> StateTypes.VOID_AIR;
-            case "GRASS_BLOCK" -> StateTypes.GRASS_BLOCK;
-            case "DIRT" -> StateTypes.DIRT;
-            case "OAK_LOG" -> StateTypes.OAK_LOG;
-            case "BIRCH_LOG" -> StateTypes.BIRCH_LOG;
-            case "SPRUCE_LOG" -> StateTypes.SPRUCE_LOG;
-            case "JUNGLE_LOG" -> StateTypes.JUNGLE_LOG;
-            case "ACACIA_LOG" -> StateTypes.ACACIA_LOG;
-            case "DARK_OAK_LOG" -> StateTypes.DARK_OAK_LOG;
-            case "MANGROVE_LOG" -> StateTypes.MANGROVE_LOG;
-            case "CHERRY_LOG" -> StateTypes.CHERRY_LOG;
-            case "IRON_ORE" -> StateTypes.IRON_ORE;
-            case "GOLD_ORE" -> StateTypes.GOLD_ORE;
-            case "DIAMOND_ORE" -> StateTypes.DIAMOND_ORE;
-            case "COAL_ORE" -> StateTypes.COAL_ORE;
-            case "COPPER_ORE" -> StateTypes.COPPER_ORE;
-            case "STONE" -> StateTypes.STONE;
-            case "BARRIER" -> StateTypes.BARRIER;
-            default -> StateTypes.AIR; // Default to air for unknown blocks
-        };
+        // Use PacketEvents' built-in lookup to support all block types
+        String name = material.name().toLowerCase();
+        StateType stateType = StateTypes.getByName("minecraft:" + name);
+        return stateType != null ? stateType : StateTypes.AIR;
     }
 }
