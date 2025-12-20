@@ -22,6 +22,7 @@ public class DatabaseManager {
         File dbFile = new File(plugin.getDataFolder(), "qtccore");
 
         HikariConfig config = new HikariConfig();
+        config.setDriverClassName("org.h2.Driver");
         config.setJdbcUrl("jdbc:h2:file:" + dbFile.getAbsolutePath() + ";MODE=MySQL");
         config.setMaximumPoolSize(10);
         config.setMinimumIdle(2);
