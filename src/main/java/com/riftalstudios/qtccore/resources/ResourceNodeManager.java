@@ -2,6 +2,9 @@ package com.riftalstudios.qtccore.resources;
 
 import com.riftalstudios.qtccore.Manager;
 import com.riftalstudios.qtccore.QTCCore;
+import com.riftalstudios.qtccore.resources.packet.BlockUpdateAdapter;
+import com.riftalstudios.qtccore.resources.packet.ChunkDataAdapter;
+import com.riftalstudios.qtccore.resources.packet.NodeBlockManager;
 import com.riftalstudios.qtccore.storage.DatabaseManager;
 import com.riftalstudios.qtccore.storage.ResourceNodeStorage;
 import org.bukkit.Chunk;
@@ -19,6 +22,15 @@ import org.bukkit.event.world.ChunkUnloadEvent;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Manages resource nodes using pure packet-based display system.
+ *
+ * Key components:
+ * - NodeBlockManager: Chunk-indexed node storage and viewer tracking
+ * - ChunkDataAdapter: Injects node blocks into CHUNK_DATA packets
+ * - BlockUpdateAdapter: Maintains illusion when blocks change
+ * - NodeDisplayManager: Coordinates viewer state and immediate block changes
+ */
 public class ResourceNodeManager implements Manager, Listener {
 
     private final QTCCore plugin;
@@ -28,10 +40,16 @@ public class ResourceNodeManager implements Manager, Listener {
     private final Map<String, Set<UUID>> chunkNodeMap = new ConcurrentHashMap<>();
     private final Map<Long, Set<UUID>> locationNodeMap = new ConcurrentHashMap<>();
 
+    // Core components
     private PlayerNodeStateManager stateManager;
+    private NodeBlockManager blockManager;
     private NodeDisplayManager displayManager;
     private ResourceNodeRegenerator regenerator;
     private ResourceNodeBreakHandler breakHandler;
+
+    // Packet adapters
+    private ChunkDataAdapter chunkDataAdapter;
+    private BlockUpdateAdapter blockUpdateAdapter;
 
     public ResourceNodeManager(QTCCore plugin, DatabaseManager database) {
         this.plugin = plugin;
@@ -39,13 +57,36 @@ public class ResourceNodeManager implements Manager, Listener {
         this.storage = new ResourceNodeStorage(plugin, database);
     }
 
+    /**
+     * Initialize the display system with packet adapters.
+     * Called after PacketEvents is fully initialized.
+     */
     public void initializeDisplay() {
+        // Core state management
         this.stateManager = new PlayerNodeStateManager();
-        this.displayManager = new NodeDisplayManager(plugin, stateManager);
+        this.blockManager = new NodeBlockManager();
+
+        // Display manager (coordinates viewers and immediate block changes)
+        this.displayManager = new NodeDisplayManager(plugin, stateManager, blockManager);
+
+        // Regeneration task
         this.regenerator = new ResourceNodeRegenerator(plugin, this, stateManager, displayManager);
-        this.breakHandler = new ResourceNodeBreakHandler(plugin, this, stateManager);
+
+        // Break handler (handles PLAYER_DIGGING packets)
+        this.breakHandler = new ResourceNodeBreakHandler(plugin, this, stateManager, blockManager);
         this.breakHandler.register();
+
+        // Packet adapters (intercept outgoing packets)
+        this.chunkDataAdapter = new ChunkDataAdapter(plugin, blockManager, stateManager);
+        this.chunkDataAdapter.register();
+
+        this.blockUpdateAdapter = new BlockUpdateAdapter(plugin, blockManager, stateManager);
+        this.blockUpdateAdapter.register();
+
+        // Start regeneration task
         this.regenerator.startRegenerationTask();
+
+        plugin.getLogger().info("Resource node packet-based display system initialized");
     }
 
     public NodeDisplayManager getDisplayManager() {
@@ -60,6 +101,10 @@ public class ResourceNodeManager implements Manager, Listener {
         return stateManager;
     }
 
+    public NodeBlockManager getBlockManager() {
+        return blockManager;
+    }
+
     @Override
     public void enable() {
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -68,19 +113,39 @@ public class ResourceNodeManager implements Manager, Listener {
 
     @Override
     public void disable() {
+        // Unregister packet listeners
         if (breakHandler != null) {
             breakHandler.unregister();
         }
+        if (chunkDataAdapter != null) {
+            chunkDataAdapter.unregister();
+        }
+        if (blockUpdateAdapter != null) {
+            blockUpdateAdapter.unregister();
+        }
+
+        // Cancel regeneration tasks
         if (regenerator != null) {
             regenerator.cancelAll();
         }
+
+        // Clean up state
         if (stateManager != null) {
             stateManager.clear();
         }
+        if (blockManager != null) {
+            blockManager.clear();
+        }
+        if (displayManager != null) {
+            displayManager.getBreakAnimationTask().clear();
+        }
+
+        // Save and clear nodes
         saveAllNodes();
         nodes.clear();
         chunkNodeMap.clear();
         locationNodeMap.clear();
+
         plugin.getLogger().info("ResourceNodeManager disabled");
     }
 
@@ -98,7 +163,7 @@ public class ResourceNodeManager implements Manager, Listener {
         // Clear any existing block at the node location
         clearBlockAtNode(node);
 
-        // Show to all online players
+        // Register with block manager and show to all players
         if (displayManager != null) {
             displayManager.showNodeToAll(node);
         }
@@ -225,7 +290,7 @@ public class ResourceNodeManager implements Manager, Listener {
             if (stateManager != null) {
                 var states = stateManager.getPlayerStates(player.getUniqueId());
                 for (PlayerNodeState state : states.values()) {
-                    state.setDisplaySpawned(false);
+                    state.setViewer(false);
                 }
             }
 
@@ -255,7 +320,7 @@ public class ResourceNodeManager implements Manager, Listener {
                         addToChunkMap(node);
                         addToLocationMap(node);
 
-                        // Show to all online players
+                        // Register with block manager and show to all online players
                         if (displayManager != null && node.getState() == NodeState.ACTIVE) {
                             displayManager.showNodeToAll(node);
                         }

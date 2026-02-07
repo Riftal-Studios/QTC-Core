@@ -1,13 +1,13 @@
 package com.riftalstudios.qtccore.resources;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
  * Tracks per-player state for a resource node.
- * Each player has independent HP, cooldowns, and display entities for each node.
- * Supports multi-block nodes with multiple display/interaction entity pairs.
+ * Each player has independent HP, cooldowns, and visibility for each node.
+ *
+ * In the pure packet-based system, we no longer track entity IDs.
+ * The visibility is managed by the NodeBlockManager viewer system.
  */
 public class PlayerNodeState {
 
@@ -17,15 +17,10 @@ public class PlayerNodeState {
     private final int maxHp;
     private long lastHitTime;
     private long regenerateAtTime;
-    private boolean displaySpawned;
 
-    // Multi-block support: one entity pair per block
-    private final List<Integer> displayEntityIds;
-    private final List<Integer> interactionEntityIds;
-
-    // Legacy single-block access (for backwards compatibility)
-    private int displayEntityId;
-    private int interactionEntityId;
+    // Whether this player can see the node (managed by NodeBlockManager)
+    // This is a local cache - the source of truth is NodeBlockManager.isViewer()
+    private boolean isViewer;
 
     public PlayerNodeState(UUID playerId, UUID nodeId, int maxHp) {
         this.playerId = playerId;
@@ -34,11 +29,7 @@ public class PlayerNodeState {
         this.maxHp = maxHp;
         this.lastHitTime = 0;
         this.regenerateAtTime = 0;
-        this.displayEntityId = -1;
-        this.interactionEntityId = -1;
-        this.displaySpawned = false;
-        this.displayEntityIds = new ArrayList<>();
-        this.interactionEntityIds = new ArrayList<>();
+        this.isViewer = false;
     }
 
     public UUID getPlayerId() {
@@ -103,94 +94,40 @@ public class PlayerNodeState {
         this.regenerateAtTime = System.currentTimeMillis() + delayMs;
     }
 
-    // ==================== Legacy Single-Block Access ====================
-
-    public int getDisplayEntityId() {
-        return displayEntityId;
-    }
-
-    public void setDisplayEntityId(int entityId) {
-        this.displayEntityId = entityId;
-    }
-
-    public int getInteractionEntityId() {
-        return interactionEntityId;
-    }
-
-    public void setInteractionEntityId(int entityId) {
-        this.interactionEntityId = entityId;
-    }
-
-    // ==================== Multi-Block Entity Access ====================
+    // ==================== Viewer State ====================
 
     /**
-     * Get all display entity IDs for this node.
+     * Check if this player is currently viewing the node.
+     * Note: This is a local cache. The source of truth is NodeBlockManager.isViewer().
      */
-    public List<Integer> getDisplayEntityIds() {
-        return displayEntityIds;
+    public boolean isViewer() {
+        return isViewer;
     }
 
     /**
-     * Get all interaction entity IDs for this node.
+     * Set the viewer state (called by NodeDisplayManager when adding/removing viewer).
      */
-    public List<Integer> getInteractionEntityIds() {
-        return interactionEntityIds;
+    public void setViewer(boolean viewer) {
+        this.isViewer = viewer;
     }
+
+    // ==================== Legacy Compatibility ====================
+    // These methods exist for backward compatibility during migration.
+    // They do nothing in the pure packet-based system.
 
     /**
-     * Add a display entity ID.
+     * @deprecated Entity IDs are no longer used in the packet-based system.
      */
-    public void addDisplayEntityId(int entityId) {
-        displayEntityIds.add(entityId);
-        // Keep legacy field updated with first ID
-        if (displayEntityId == -1) {
-            displayEntityId = entityId;
-        }
-    }
-
-    /**
-     * Add an interaction entity ID.
-     */
-    public void addInteractionEntityId(int entityId) {
-        interactionEntityIds.add(entityId);
-        // Keep legacy field updated with first ID
-        if (interactionEntityId == -1) {
-            interactionEntityId = entityId;
-        }
-    }
-
-    /**
-     * Get all entity IDs (display + interaction) as a flat array.
-     */
-    public int[] getAllEntityIds() {
-        int[] ids = new int[displayEntityIds.size() + interactionEntityIds.size()];
-        int i = 0;
-        for (int id : displayEntityIds) {
-            ids[i++] = id;
-        }
-        for (int id : interactionEntityIds) {
-            ids[i++] = id;
-        }
-        return ids;
-    }
-
-    /**
-     * Clear all entity IDs (on hide).
-     */
-    public void clearEntityIds() {
-        displayEntityIds.clear();
-        interactionEntityIds.clear();
-        displayEntityId = -1;
-        interactionEntityId = -1;
-    }
-
-    // ==================== Display State ====================
-
+    @Deprecated
     public boolean isDisplaySpawned() {
-        return displaySpawned;
+        return isViewer;
     }
 
+    /**
+     * @deprecated Entity IDs are no longer used in the packet-based system.
+     */
+    @Deprecated
     public void setDisplaySpawned(boolean spawned) {
-        this.displaySpawned = spawned;
+        this.isViewer = spawned;
     }
 }

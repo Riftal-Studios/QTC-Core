@@ -1,5 +1,6 @@
 package com.riftalstudios.qtccore;
 
+import com.riftalstudios.qtccore.api.DiscordAPIManager;
 import com.riftalstudios.qtccore.commands.QTCCommand;
 import com.riftalstudios.qtccore.config.ConfigManager;
 import com.riftalstudios.qtccore.config.MessageConfig;
@@ -20,6 +21,7 @@ public class QTCCore extends JavaPlugin {
     private DatabaseManager databaseManager;
     private ResourceNodeManager resourceNodeManager;
     private NodeTemplateManager nodeTemplateManager;
+    private DiscordAPIManager discordAPIManager;
 
     @Override
     public void onEnable() {
@@ -40,6 +42,9 @@ public class QTCCore extends JavaPlugin {
 
         nodeTemplateManager = new NodeTemplateManager(this);
         registerManager(nodeTemplateManager);
+
+        discordAPIManager = new DiscordAPIManager(this);
+        registerManager(discordAPIManager);
 
         registerCommands();
 
@@ -130,6 +135,10 @@ public class QTCCore extends JavaPlugin {
 
     public NodeTemplateManager getNodeTemplateManager() {
         return nodeTemplateManager;
+    }
+
+    public DiscordAPIManager getDiscordAPIManager() {
+        return discordAPIManager;
     }
 
     private void registerCommands() {

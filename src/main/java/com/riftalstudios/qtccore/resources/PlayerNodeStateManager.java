@@ -3,11 +3,13 @@ package com.riftalstudios.qtccore.resources;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Manages per-player state for all resource nodes.
  * Structure: playerId -> nodeId -> PlayerNodeState
+ *
+ * In the pure packet-based system, this no longer manages entity IDs.
+ * Visibility is tracked via NodeBlockManager.
  */
 public class PlayerNodeStateManager {
 
@@ -22,12 +24,9 @@ public class PlayerNodeStateManager {
                 playerId, k -> new ConcurrentHashMap<>()
         );
 
-        return nodeStates.computeIfAbsent(node.getId(), k -> {
-            PlayerNodeState state = new PlayerNodeState(playerId, node.getId(), node.getMaxHp());
-            state.setDisplayEntityId(generateEntityId());
-            state.setInteractionEntityId(generateEntityId());
-            return state;
-        });
+        return nodeStates.computeIfAbsent(node.getId(), k ->
+            new PlayerNodeState(playerId, node.getId(), node.getMaxHp())
+        );
     }
 
     /**
@@ -81,14 +80,6 @@ public class PlayerNodeStateManager {
      */
     public void clear() {
         playerStates.clear();
-    }
-
-    /**
-     * Generate a unique entity ID for client-side display.
-     * Uses high range to avoid collision with real entities.
-     */
-    private int generateEntityId() {
-        return ThreadLocalRandom.current().nextInt(100000, Integer.MAX_VALUE);
     }
 
     /**

@@ -1,171 +1,125 @@
 package com.riftalstudios.qtccore.resources;
 
 import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
-import com.github.retrooper.packetevents.protocol.entity.data.EntityDataTypes;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
+import com.github.retrooper.packetevents.protocol.player.User;
 import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
-import io.github.retrooper.packetevents.util.SpigotConversionUtil;
-import com.github.retrooper.packetevents.util.Vector3d;
-import com.github.retrooper.packetevents.util.Vector3f;
+import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
 import com.github.retrooper.packetevents.util.Vector3i;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
 import com.riftalstudios.qtccore.QTCCore;
+import com.riftalstudios.qtccore.resources.packet.NodeBlockManager;
+import com.riftalstudios.qtccore.resources.packet.NodeBreakAnimationTask;
 import com.riftalstudios.qtccore.resources.template.BlockOffset;
+import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
-
 /**
- * Manages client-side display entities for resource nodes using PacketEvents.
- * Entities exist only on the client - zero server overhead.
- * Supports multi-block nodes with templates.
+ * Manages client-side display for resource nodes using pure packet-based block modification.
+ *
+ * Key changes from entity-based system:
+ * - No entities spawned - blocks are injected into CHUNK_DATA packets via ChunkDataAdapter
+ * - Block updates intercepted via BlockUpdateAdapter to maintain illusion
+ * - Break animations use WrapperPlayServerBlockBreakAnimation
+ * - Much simpler state management - just track viewers in NodeBlockManager
+ *
+ * The actual packet interception happens in ChunkDataAdapter and BlockUpdateAdapter.
+ * This class coordinates the viewer state and sends immediate block change packets
+ * when nodes are shown/hidden mid-session.
  */
 public class NodeDisplayManager {
 
     private final QTCCore plugin;
     private final PlayerNodeStateManager stateManager;
+    private final NodeBlockManager blockManager;
+    private final NodeBreakAnimationTask breakAnimationTask;
 
-    // Atomic counter for generating unique entity IDs
-    private final AtomicInteger entityIdCounter = new AtomicInteger(Integer.MAX_VALUE / 2);
-
-    public NodeDisplayManager(QTCCore plugin, PlayerNodeStateManager stateManager) {
+    public NodeDisplayManager(QTCCore plugin, PlayerNodeStateManager stateManager, NodeBlockManager blockManager) {
         this.plugin = plugin;
         this.stateManager = stateManager;
+        this.blockManager = blockManager;
+        this.breakAnimationTask = new NodeBreakAnimationTask(plugin);
     }
 
     /**
-     * Generate a unique entity ID for packet entities.
+     * Get the node block manager.
      */
-    private int nextEntityId() {
-        return entityIdCounter.getAndIncrement();
+    public NodeBlockManager getBlockManager() {
+        return blockManager;
     }
 
     /**
-     * Show a node to a specific player by sending spawn packets.
-     * Supports multi-block nodes - spawns entities for each block.
+     * Get the break animation task.
+     */
+    public NodeBreakAnimationTask getBreakAnimationTask() {
+        return breakAnimationTask;
+    }
+
+    /**
+     * Show a node to a specific player by registering them as a viewer
+     * and sending immediate block change packets.
+     *
+     * For chunk loads, the ChunkDataAdapter handles this automatically.
+     * This method is used for:
+     * - Player joins (chunks already loaded)
+     * - Node regeneration (make visible again after depletion)
+     * - New node creation
      */
     public void showNodeToPlayer(Player player, ResourceNode node) {
         PlayerNodeState state = stateManager.getOrCreateState(player.getUniqueId(), node);
 
-        if (state.isDisplaySpawned()) return;
+        // Don't show if already viewing or depleted for this player
+        if (state.isViewer()) return;
         if (state.isDepleted()) return;
 
-        var user = PacketEvents.getAPI().getPlayerManager().getUser(player);
+        // Register as viewer
+        blockManager.addViewer(node, player);
+        state.setViewer(true);
+
+        // Send immediate block change packets for all blocks in the node
+        User user = PacketEvents.getAPI().getPlayerManager().getUser(player);
         if (user == null) return;
 
-        // Clear any old entity IDs
-        state.clearEntityIds();
-
         Location baseLoc = node.getBaseLocation();
-        List<BlockOffset> blocks = node.getBlocks();
-
-        // Spawn entities for each block in the node
-        for (BlockOffset offset : blocks) {
+        for (BlockOffset offset : node.getBlocks()) {
             Location blockLoc = offset.apply(baseLoc);
-            int displayEntityId = nextEntityId();
-            int interactionEntityId = nextEntityId();
+            Vector3i blockPos = new Vector3i(blockLoc.getBlockX(), blockLoc.getBlockY(), blockLoc.getBlockZ());
 
-            // Track entity IDs in state
-            state.addDisplayEntityId(displayEntityId);
-            state.addInteractionEntityId(interactionEntityId);
-
-            // Position at block center for display
-            Vector3d displayPosition = new Vector3d(
-                    blockLoc.getX() + 0.5,
-                    blockLoc.getY() + 0.5,
-                    blockLoc.getZ() + 0.5
-            );
-
-            // --- BlockDisplay entity ---
-            WrapperPlayServerSpawnEntity displaySpawnPacket = new WrapperPlayServerSpawnEntity(
-                    displayEntityId,
-                    Optional.of(UUID.randomUUID()),
-                    EntityTypes.BLOCK_DISPLAY,
-                    displayPosition,
-                    0f, 0f, 0f,
-                    0,
-                    Optional.empty()
-            );
-
-            // Use block's specific material from template
+            // Send the node block
             StateType stateType = materialToStateType(offset.material());
             WrappedBlockState blockState = stateType.createBlockState();
-
-            List<EntityData> displayMetadata = List.of(
-                    new EntityData(23, EntityDataTypes.BLOCK_STATE, blockState.getGlobalId()),
-                    new EntityData(11, EntityDataTypes.VECTOR3F, new Vector3f(-0.5f, -0.5f, -0.5f))
-            );
-
-            WrapperPlayServerEntityMetadata displayMetadataPacket = new WrapperPlayServerEntityMetadata(
-                    displayEntityId, displayMetadata
-            );
-
-            // --- Interaction entity (hitbox) ---
-            Vector3d interactionPosition = new Vector3d(
-                    blockLoc.getX() + 0.5,
-                    blockLoc.getY(),
-                    blockLoc.getZ() + 0.5
-            );
-
-            WrapperPlayServerSpawnEntity interactionSpawnPacket = new WrapperPlayServerSpawnEntity(
-                    interactionEntityId,
-                    Optional.of(UUID.randomUUID()),
-                    EntityTypes.INTERACTION,
-                    interactionPosition,
-                    0f, 0f, 0f,
-                    0,
-                    Optional.empty()
-            );
-
-            List<EntityData> interactionMetadata = List.of(
-                    new EntityData(8, EntityDataTypes.FLOAT, 1.0f),  // Width
-                    new EntityData(9, EntityDataTypes.FLOAT, 1.0f)   // Height
-            );
-
-            WrapperPlayServerEntityMetadata interactionMetadataPacket = new WrapperPlayServerEntityMetadata(
-                    interactionEntityId, interactionMetadata
-            );
-
-            // --- Barrier block for collision ---
-            Vector3i blockPos = new Vector3i(blockLoc.getBlockX(), blockLoc.getBlockY(), blockLoc.getBlockZ());
-            WrappedBlockState barrierState = StateTypes.BARRIER.createBlockState();
-            WrapperPlayServerBlockChange barrierPacket = new WrapperPlayServerBlockChange(blockPos, barrierState.getGlobalId());
-
-            // Send all packets for this block
-            user.sendPacket(displaySpawnPacket);
-            user.sendPacket(displayMetadataPacket);
-            user.sendPacket(interactionSpawnPacket);
-            user.sendPacket(interactionMetadataPacket);
-            user.sendPacket(barrierPacket);
+            WrapperPlayServerBlockChange blockPacket = new WrapperPlayServerBlockChange(blockPos, blockState.getGlobalId());
+            user.sendPacket(blockPacket);
         }
-
-        state.setDisplaySpawned(true);
     }
 
     /**
-     * Hide a node from a specific player by sending destroy packet.
-     * Supports multi-block nodes - restores all blocks and destroys all entities.
+     * Hide a node from a specific player by removing them as a viewer
+     * and restoring real blocks.
+     *
+     * Used when:
+     * - Node is depleted for this player
+     * - Node is removed
+     * - Player quits (cleanup)
      */
     public void hideNodeFromPlayer(Player player, ResourceNode node) {
         PlayerNodeState state = stateManager.getState(player.getUniqueId(), node.getId());
 
-        var user = PacketEvents.getAPI().getPlayerManager().getUser(player);
+        // Remove from viewer list
+        blockManager.removeViewer(node, player);
+        if (state != null) {
+            state.setViewer(false);
+        }
+
+        // Clear any break animation
+        breakAnimationTask.clearBreakAnimation(player, node);
+
+        // Send real block states to restore the actual world
+        User user = PacketEvents.getAPI().getPlayerManager().getUser(player);
         if (user == null) return;
 
-        // Always restore all blocks (remove barrier collisions)
-        // This is done regardless of displaySpawned state to ensure barrier cleanup
         for (Location blockLoc : node.getAllBlockLocations()) {
             Vector3i blockPos = new Vector3i(blockLoc.getBlockX(), blockLoc.getBlockY(), blockLoc.getBlockZ());
             // Use SpigotConversionUtil to preserve block data (orientation, properties, etc.)
@@ -173,23 +127,15 @@ public class NodeDisplayManager {
             WrapperPlayServerBlockChange restorePacket = new WrapperPlayServerBlockChange(blockPos, realState.getGlobalId());
             user.sendPacket(restorePacket);
         }
-
-        // Only destroy entities if they were spawned
-        if (state != null && state.isDisplaySpawned()) {
-            int[] entityIds = state.getAllEntityIds();
-            if (entityIds.length > 0) {
-                WrapperPlayServerDestroyEntities destroyPacket = new WrapperPlayServerDestroyEntities(entityIds);
-                user.sendPacket(destroyPacket);
-            }
-            state.clearEntityIds();
-            state.setDisplaySpawned(false);
-        }
     }
 
     /**
      * Show a node to all online players.
      */
     public void showNodeToAll(ResourceNode node) {
+        // Register node with block manager
+        blockManager.registerNode(node);
+
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             showNodeToPlayer(player, node);
         }
@@ -202,63 +148,20 @@ public class NodeDisplayManager {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             hideNodeFromPlayer(player, node);
         }
+
+        // Unregister from block manager
+        blockManager.unregisterNode(node);
     }
 
     /**
-     * Play shake animation on a node for a specific player.
-     * For multi-block nodes, all blocks shake together.
+     * Play hit animation (break progress) on a node for a specific player.
      */
     public void playHitAnimation(Player player, ResourceNode node) {
         PlayerNodeState state = stateManager.getState(player.getUniqueId(), node.getId());
-        if (state == null || !state.isDisplaySpawned()) return;
+        if (state == null || !state.isViewer()) return;
 
-        var user = PacketEvents.getAPI().getPlayerManager().getUser(player);
-        if (user == null) return;
-
-        List<Integer> displayIds = state.getDisplayEntityIds();
-        if (displayIds.isEmpty()) return;
-
-        // Random shake offset (same for all blocks in this node)
-        float shakeX = (float) ((Math.random() - 0.5) * 0.1);
-        float shakeZ = (float) ((Math.random() - 0.5) * 0.1);
-
-        // Shake all blocks
-        for (int entityId : displayIds) {
-            List<EntityData> shakeMetadata = List.of(
-                    new EntityData(11, EntityDataTypes.VECTOR3F,
-                            new Vector3f(-0.5f + shakeX, -0.5f, -0.5f + shakeZ)),
-                    new EntityData(9, EntityDataTypes.INT, 1) // Interpolation duration
-            );
-
-            WrapperPlayServerEntityMetadata shakePacket = new WrapperPlayServerEntityMetadata(
-                    entityId, shakeMetadata
-            );
-            user.sendPacket(shakePacket);
-        }
-
-        // Capture IDs for reset task
-        List<Integer> idsToReset = new ArrayList<>(displayIds);
-
-        // Reset after 2 ticks
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            if (!player.isOnline()) return;
-
-            var resetUser = PacketEvents.getAPI().getPlayerManager().getUser(player);
-            if (resetUser == null) return;
-
-            for (int entityId : idsToReset) {
-                List<EntityData> resetMetadata = List.of(
-                        new EntityData(11, EntityDataTypes.VECTOR3F,
-                                new Vector3f(-0.5f, -0.5f, -0.5f)),
-                        new EntityData(9, EntityDataTypes.INT, 2)
-                );
-
-                WrapperPlayServerEntityMetadata resetPacket = new WrapperPlayServerEntityMetadata(
-                        entityId, resetMetadata
-                );
-                resetUser.sendPacket(resetPacket);
-            }
-        }, 2L);
+        // Update break animation based on current HP
+        breakAnimationTask.updateBreakAnimation(player, node, state.getCurrentHp(), state.getMaxHp());
     }
 
     /**
@@ -285,40 +188,24 @@ public class NodeDisplayManager {
 
     /**
      * Remove all displays for a player (on quit).
-     * Supports multi-block nodes.
      */
     public void removeAllForPlayer(Player player) {
-        var states = stateManager.getPlayerStates(player.getUniqueId());
-        if (states.isEmpty()) return;
+        // Remove from all viewer lists
+        blockManager.removePlayerFromAllNodes(player.getUniqueId());
 
-        var user = PacketEvents.getAPI().getPlayerManager().getUser(player);
+        // Clear break animations
+        breakAnimationTask.clearPlayer(player.getUniqueId());
+
+        // Restore all blocks (in case needed)
+        var states = stateManager.getPlayerStates(player.getUniqueId());
+        User user = PacketEvents.getAPI().getPlayerManager().getUser(player);
         if (user == null) return;
 
-        // Collect all entity IDs from spawned states (multi-block aware)
-        List<Integer> allEntityIds = new ArrayList<>();
-        for (PlayerNodeState state : states.values()) {
-            if (state.isDisplaySpawned()) {
-                int[] ids = state.getAllEntityIds();
-                for (int id : ids) {
-                    allEntityIds.add(id);
-                }
-            }
-        }
-
-        // Destroy all spawned display entities
-        if (!allEntityIds.isEmpty()) {
-            int[] entityIds = allEntityIds.stream().mapToInt(Integer::intValue).toArray();
-            WrapperPlayServerDestroyEntities destroyPacket = new WrapperPlayServerDestroyEntities(entityIds);
-            user.sendPacket(destroyPacket);
-        }
-
-        // Restore all barrier blocks (for all blocks in each node)
         for (PlayerNodeState state : states.values()) {
             ResourceNode node = plugin.getResourceNodeManager().getNode(state.getNodeId());
             if (node != null) {
                 for (Location blockLoc : node.getAllBlockLocations()) {
                     Vector3i blockPos = new Vector3i(blockLoc.getBlockX(), blockLoc.getBlockY(), blockLoc.getBlockZ());
-                    // Use SpigotConversionUtil to preserve block data (orientation, properties, etc.)
                     WrappedBlockState realState = SpigotConversionUtil.fromBukkitBlockData(blockLoc.getBlock().getBlockData());
                     WrapperPlayServerBlockChange restorePacket = new WrapperPlayServerBlockChange(blockPos, realState.getGlobalId());
                     user.sendPacket(restorePacket);
@@ -331,7 +218,6 @@ public class NodeDisplayManager {
      * Convert Bukkit Material to PacketEvents StateType.
      */
     private StateType materialToStateType(Material material) {
-        // Use PacketEvents' built-in lookup to support all block types
         String name = material.name().toLowerCase();
         StateType stateType = StateTypes.getByName("minecraft:" + name);
         return stateType != null ? stateType : StateTypes.AIR;

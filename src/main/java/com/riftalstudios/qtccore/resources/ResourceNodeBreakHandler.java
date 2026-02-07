@@ -7,9 +7,9 @@ import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 import com.github.retrooper.packetevents.util.Vector3i;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerDigging;
 import com.riftalstudios.qtccore.QTCCore;
+import com.riftalstudios.qtccore.resources.packet.NodeBlockManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
@@ -26,20 +26,31 @@ import java.util.UUID;
 
 /**
  * Handles resource node breaking via packet interception.
- * Intercepts dig packets to detect when players try to break nodes.
+ *
+ * In the pure packet-based system, we only handle PLAYER_DIGGING packets.
+ * No entity interaction handling needed since we no longer spawn interaction entities.
+ *
+ * Detection flow:
+ * 1. Player left-clicks a block position
+ * 2. PLAYER_DIGGING packet is sent with START_DIGGING action
+ * 3. We check if that position has a visible node for this player
+ * 4. If yes, cancel the packet and handle node interaction
  */
 public class ResourceNodeBreakHandler extends PacketListenerAbstract {
 
     private final QTCCore plugin;
     private final ResourceNodeManager nodeManager;
     private final PlayerNodeStateManager stateManager;
+    private final NodeBlockManager blockManager;
     private static final long INTERACTION_COOLDOWN_MS = 250;
 
-    public ResourceNodeBreakHandler(QTCCore plugin, ResourceNodeManager nodeManager, PlayerNodeStateManager stateManager) {
+    public ResourceNodeBreakHandler(QTCCore plugin, ResourceNodeManager nodeManager,
+                                    PlayerNodeStateManager stateManager, NodeBlockManager blockManager) {
         super(PacketListenerPriority.NORMAL);
         this.plugin = plugin;
         this.nodeManager = nodeManager;
         this.stateManager = stateManager;
+        this.blockManager = blockManager;
     }
 
     public void register() {
@@ -53,40 +64,12 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        // Handle entity interaction (clicking the Interaction hitbox)
-        if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
-            handleEntityInteraction(event);
+        // Only handle block digging (left click on block position)
+        if (event.getPacketType() != PacketType.Play.Client.PLAYER_DIGGING) {
             return;
         }
 
-        // Handle block digging (left click on block position)
-        if (event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING) {
-            handleBlockDigging(event);
-        }
-    }
-
-    private void handleEntityInteraction(PacketReceiveEvent event) {
-        WrapperPlayClientInteractEntity packet = new WrapperPlayClientInteractEntity(event);
-
-        // Only handle attack action (left click)
-        if (packet.getAction() != WrapperPlayClientInteractEntity.InteractAction.ATTACK) return;
-
-        Player player = (Player) event.getPlayer();
-        if (player == null) return;
-
-        int entityId = packet.getEntityId();
-
-        // Find node by interaction entity ID
-        ResourceNode node = findNodeByInteractionEntityId(player.getUniqueId(), entityId);
-        if (node == null) return;
-
-        // Cancel the packet
-        event.setCancelled(true);
-
-        // Run on main thread (Bukkit API requires it)
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            handleNodeInteraction(player, node, node.getLocation());
-        });
+        handleBlockDigging(event);
     }
 
     private void handleBlockDigging(PacketReceiveEvent event) {
@@ -100,46 +83,28 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
         if (player == null) return;
 
         Vector3i blockPos = packet.getBlockPosition();
-        Location loc = new Location(
-                player.getWorld(),
-                blockPos.getX(),
-                blockPos.getY(),
-                blockPos.getZ()
-        );
+        String worldName = player.getWorld().getName();
 
-        // Check if there's a resource node at this location
-        ResourceNode node = nodeManager.getNodeAt(loc);
+        // Check if there's a resource node at this position that the player can see
+        ResourceNode node = blockManager.getNodeAt(worldName, blockPos.getX(), blockPos.getY(), blockPos.getZ());
         if (node == null) return;
+
+        // Verify player is a viewer of this node
+        if (!blockManager.isViewer(node, player)) return;
+
+        // Check player's state - if depleted for them, don't handle
+        PlayerNodeState state = stateManager.getState(player.getUniqueId(), node.getId());
+        if (state != null && state.isDepleted()) return;
 
         // Cancel the dig packet - don't let it through
         event.setCancelled(true);
+
+        Location loc = new Location(player.getWorld(), blockPos.getX(), blockPos.getY(), blockPos.getZ());
 
         // Run on main thread (Bukkit API requires it)
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             handleNodeInteraction(player, node, loc);
         });
-    }
-
-    /**
-     * Find a node by checking if the entity ID matches any interaction entity
-     * in the player's tracked states (supports multi-block nodes).
-     */
-    private ResourceNode findNodeByInteractionEntityId(UUID playerId, int entityId) {
-        var states = stateManager.getPlayerStates(playerId);
-        for (var entry : states.entrySet()) {
-            PlayerNodeState state = entry.getValue();
-            // Check all interaction entity IDs (multi-block support)
-            for (int interactionId : state.getInteractionEntityIds()) {
-                if (interactionId == entityId) {
-                    return nodeManager.getNode(entry.getKey());
-                }
-            }
-            // Also check legacy single ID for backward compatibility
-            if (state.getInteractionEntityId() == entityId) {
-                return nodeManager.getNode(entry.getKey());
-            }
-        }
-        return null;
     }
 
     private void handleNodeInteraction(Player player, ResourceNode node, Location loc) {
@@ -252,24 +217,30 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
         Material blockMaterial = node.getType().getDisplayBlock();
         BlockData blockData = blockMaterial.createBlockData();
 
-        // Play block hit sound
+        // Play block hit sound with slight pitch variation
         Sound hitSound = getHitSound(node.getType());
         world.playSound(loc.clone().add(0.5, 0.5, 0.5), hitSound, 1.0f, 0.8f + (float)(Math.random() * 0.4));
 
-        // Spawn block crack particles
+        // Particle burst for hit feedback
         world.spawnParticle(
                 Particle.BLOCK,
                 loc.clone().add(0.5, 0.5, 0.5),
-                10,
+                15,
                 0.3, 0.3, 0.3,
                 0.1,
                 blockData
         );
 
-        // Play shake animation
-        NodeDisplayManager displayManager = nodeManager.getDisplayManager();
-        if (displayManager != null) {
-            displayManager.playHitAnimation(player, node);
+        // Play break animation (shows crack stages on the block)
+        // Get state to pass current HP directly
+        PlayerNodeState state = stateManager.getState(player.getUniqueId(), node.getId());
+        if (state != null) {
+            NodeDisplayManager displayManager = nodeManager.getDisplayManager();
+            if (displayManager != null) {
+                displayManager.getBreakAnimationTask().updateBreakAnimation(
+                        player, node, state.getCurrentHp(), state.getMaxHp()
+                );
+            }
         }
     }
 
@@ -284,15 +255,17 @@ public class ResourceNodeBreakHandler extends PacketListenerAbstract {
         Sound breakSound = getBreakSound(node.getType());
         world.playSound(loc.clone().add(0.5, 0.5, 0.5), breakSound, 1.0f, 1.0f);
 
-        // Spawn larger burst of particles
-        world.spawnParticle(
-                Particle.BLOCK,
-                loc.clone().add(0.5, 0.5, 0.5),
-                30,
-                0.4, 0.4, 0.4,
-                0.1,
-                blockData
-        );
+        // Spawn larger burst of particles for all blocks in the node
+        for (Location blockLoc : node.getAllBlockLocations()) {
+            world.spawnParticle(
+                    Particle.BLOCK,
+                    blockLoc.clone().add(0.5, 0.5, 0.5),
+                    30,
+                    0.4, 0.4, 0.4,
+                    0.1,
+                    blockData
+            );
+        }
     }
 
     private Sound getHitSound(ResourceType type) {

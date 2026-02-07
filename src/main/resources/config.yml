@@ -25,3 +25,9 @@ global:
   mythiclib-integration: true
   placeholderapi-integration: true
   pyrofishing-integration: true
+
+discord-api:
+  enabled: true
+  url: "http://localhost:8080"
+  key: ""
+  timeout: 5000
