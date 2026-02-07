@@ -16,9 +16,11 @@ commands:
   qtc:
     description: Main QTC Core command
     usage: /qtc
-    permission: qtccore.admin
 
 permissions:
   qtccore.admin:
     description: Full administrative access to QTC Core
     default: op
+  qtccore.link:
+    description: Allows players to use /qtc link
+    default: true
