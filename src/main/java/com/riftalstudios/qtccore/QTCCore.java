@@ -4,9 +4,15 @@ import com.riftalstudios.qtccore.api.DiscordAPIManager;
 import com.riftalstudios.qtccore.commands.QTCCommand;
 import com.riftalstudios.qtccore.config.ConfigManager;
 import com.riftalstudios.qtccore.config.MessageConfig;
+import com.riftalstudios.qtccore.jobs.JobManager;
+import com.riftalstudios.qtccore.listeners.ProfileListener;
+import com.riftalstudios.qtccore.profile.ProfileManager;
+import com.riftalstudios.qtccore.rank.RankManager;
+import com.riftalstudios.qtccore.reputation.ReputationManager;
 import com.riftalstudios.qtccore.resources.ResourceNodeManager;
 import com.riftalstudios.qtccore.resources.template.NodeTemplateManager;
 import com.riftalstudios.qtccore.storage.DatabaseManager;
+import com.riftalstudios.qtccore.tasks.StaffTaskManager;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.util.ArrayList;
@@ -22,6 +28,11 @@ public class QTCCore extends JavaPlugin {
     private ResourceNodeManager resourceNodeManager;
     private NodeTemplateManager nodeTemplateManager;
     private DiscordAPIManager discordAPIManager;
+    private ProfileManager profileManager;
+    private RankManager rankManager;
+    private ReputationManager reputationManager;
+    private JobManager jobManager;
+    private StaffTaskManager staffTaskManager;
 
     @Override
     public void onEnable() {
@@ -46,7 +57,27 @@ public class QTCCore extends JavaPlugin {
         discordAPIManager = new DiscordAPIManager(this);
         registerManager(discordAPIManager);
 
+        // Core systems (order matters: Profile -> Rank -> Reputation -> Jobs -> Tasks)
+        profileManager = new ProfileManager(this, databaseManager);
+        registerManager(profileManager);
+
+        rankManager = new RankManager(this, profileManager);
+        registerManager(rankManager);
+
+        reputationManager = new ReputationManager(this, databaseManager, profileManager, rankManager);
+        registerManager(reputationManager);
+
+        jobManager = new JobManager(this, databaseManager, reputationManager);
+        registerManager(jobManager);
+
+        staffTaskManager = new StaffTaskManager(this, databaseManager, profileManager);
+        registerManager(staffTaskManager);
+
         registerCommands();
+
+        // Register listeners
+        getServer().getPluginManager().registerEvents(
+                new ProfileListener(this, profileManager, reputationManager), this);
 
         enableManagers();
 
@@ -139,6 +170,26 @@ public class QTCCore extends JavaPlugin {
 
     public DiscordAPIManager getDiscordAPIManager() {
         return discordAPIManager;
+    }
+
+    public ProfileManager getProfileManager() {
+        return profileManager;
+    }
+
+    public RankManager getRankManager() {
+        return rankManager;
+    }
+
+    public ReputationManager getReputationManager() {
+        return reputationManager;
+    }
+
+    public JobManager getJobManager() {
+        return jobManager;
+    }
+
+    public StaffTaskManager getStaffTaskManager() {
+        return staffTaskManager;
     }
 
     private void registerCommands() {

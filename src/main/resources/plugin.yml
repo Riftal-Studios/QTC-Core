@@ -21,6 +21,12 @@ permissions:
   qtccore.admin:
     description: Full administrative access to QTC Core
     default: op
+  qtccore.staff:
+    description: Staff access to task management and job verification
+    default: op
+  qtccore.owner:
+    description: Owner-level access
+    default: op
   qtccore.link:
     description: Allows players to use /qtc link
     default: true

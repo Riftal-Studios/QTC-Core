@@ -1,8 +1,8 @@
 plugins {
     java
     id("com.gradleup.shadow") version "8.3.5"
-    id("xyz.jpenilla.run-paper") version "2.3.1"
-    id("io.papermc.paperweight.userdev") version "1.7.7"
+    id("xyz.jpenilla.run-paper") version "3.0.2"
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.19"
 }
 
 group = "com.riftalstudios"
@@ -19,17 +19,17 @@ repositories {
 
 dependencies {
     // Paper dev bundle (provides NMS access)
-    paperweight.paperDevBundle("1.21.3-R0.1-SNAPSHOT")
+    paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
 
     // PacketEvents - client-side packet manipulation
-    compileOnly("com.github.retrooper:packetevents-spigot:2.7.0")
+    compileOnly("com.github.retrooper:packetevents-spigot:2.11.2")
 
     // Database (downloaded at runtime via plugin.yml libraries)
     compileOnly("com.zaxxer:HikariCP:5.1.0")
     compileOnly("com.h2database:h2:2.2.224")
 
     // Test dependencies (using Paper 1.21 for MockBukkit compatibility)
-    testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
+    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("com.github.seeseemelk:MockBukkit-v1.21:3.107.0")
     testImplementation("org.mockito:mockito-core:5.8.0")
@@ -56,7 +56,7 @@ tasks {
     }
 
     runServer {
-        minecraftVersion("1.21.3")
+        minecraftVersion("1.21.11")
     }
 
     processResources {

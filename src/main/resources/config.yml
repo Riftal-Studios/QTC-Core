@@ -31,3 +31,19 @@ discord-api:
   url: "http://localhost:8080"
   key: ""
   timeout: 5000
+
+# Core systems
+features-core:
+  profiles: true
+  reputation: true
+  jobs: true
+  staff-tasks: true
+
+reputation:
+  daily-login-bonus: 5
+
+jobs:
+  require-staff-verify-above: 0
+
+staff-tasks:
+  max-points: 100

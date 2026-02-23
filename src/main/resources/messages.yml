@@ -11,3 +11,28 @@ errors:
 test:
   colors: "&cThis is red text"
   placeholder: "Hello, {player}!"
+
+rank:
+  rank-up-broadcast: "&6[QTC] &f{player} &7has ranked up from &f{old_rank} &7to &a{new_rank}&7!"
+
+profile:
+  created: "&aProfile created! Welcome to QTC."
+
+reputation:
+  granted: "&aYou received &f{amount} &areputation: {reason}"
+  removed: "&c{amount} &creputation removed: {reason}"
+
+jobs:
+  posted: "&aJob posted successfully! ID: #{id}"
+  accepted: "&aYou accepted job #{id}."
+  completed: "&aJob #{id} marked as completed."
+  verified: "&aJob #{id} verified! Reputation awarded."
+  cancelled: "&cJob #{id} has been cancelled."
+
+tasks:
+  created: "&aTask #{id} created."
+  assigned: "&aYou've been assigned task #{id}."
+  started: "&aStarted task #{id}."
+  submitted: "&aTask #{id} submitted for review."
+  approved: "&aTask #{id} approved with {points} task points."
+  rejected: "&cTask #{id} has been rejected."

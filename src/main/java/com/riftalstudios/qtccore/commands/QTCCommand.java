@@ -23,6 +23,11 @@ public class QTCCommand implements CommandExecutor, TabCompleter {
         registerSubCommand(new ReloadCommand(plugin));
         registerSubCommand(new NodeCommand(plugin));
         registerSubCommand(new LinkCommand(plugin));
+        registerSubCommand(new ProfileCommand(plugin));
+        registerSubCommand(new RepCommand(plugin));
+        registerSubCommand(new RankCommand(plugin));
+        registerSubCommand(new JobCommand(plugin));
+        registerSubCommand(new TaskCommand(plugin));
     }
 
     public void registerSubCommand(SubCommand subCommand) {
